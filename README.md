@@ -10,17 +10,6 @@ To ensure that your project and repository is stable from the very start there
 are a few todo items that you should take care of. Unfortunately the RAIL project
 template can not do these for you, otherwise it would :) 
 
-### Immediate actions
-- In your repository settings:
-  -  Grant the `LSSTDESC/rail_admin` group administrator access
-  -  Grant the `LSSTDESC/photo-z` group maintainer access
-- Configure Codecov for the repository
-  - Go here, https://github.com/apps/codecov, click the "Configure" button
-- Log in to PyPI.org and configure Trusted Publishing following these instructions https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/
-- Create a Personal Access Token (PAT) to automatically add issues to the RAIL project tracker
-  - Follow these instruction to create a PAT: https://github.com/actions/add-to-project#creating-a-pat-and-adding-it-to-your-repository 
-  - Save your new PAT as a repository secret named `ADD_TO_PROJECT_PAT`
-
 ### Before including in Rail-hub
 - Make sure your `main` branch is protected
 - Update this README
