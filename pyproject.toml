@@ -16,7 +16,9 @@ classifiers = [
 ]
 dynamic = ["version"]
 
-dependencies = []
+dependencies = [
+    "deepdisc @ git+ssh://git@github/com/lincc-frameworks/deepdisc",
+]
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
