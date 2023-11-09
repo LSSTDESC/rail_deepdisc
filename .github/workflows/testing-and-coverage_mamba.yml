@@ -25,7 +25,7 @@ jobs:
 
     - uses: mamba-org/setup-micromamba@v1
       with:
-        create_args: >-
+        create-args: >-
           python=${{ matrix.python-version }}
         channels: conda-forge,defaults
         channel-priority: strict
