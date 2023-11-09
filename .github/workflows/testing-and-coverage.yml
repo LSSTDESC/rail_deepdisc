@@ -19,10 +19,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+
+    - uses: conda-incubator/setup-miniconda@v2
       with:
         python-version: ${{ matrix.python-version }}
+        channels: conda-forge,defaults
+        channel-priority: strict
+        show-channel-urls: true
+        use-mamba: true
+        environment-file: ci-environment.yml
+        activate-environment: deepdisc
+
     - name: Install dependencies
       run: |
         sudo apt-get update
