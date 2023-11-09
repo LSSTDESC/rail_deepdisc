@@ -17,6 +17,7 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
+    "pz-rail-base",
     "deepdisc@git+https://github.com/lincc-frameworks/deepdisc.git",
     "detectron2@git+https://github.com/facebookresearch/detectron2.git",
     "scarlet@git+https://github.com/pmelchior/scarlet.git",
@@ -45,10 +46,10 @@ write_to = "src/rail/deepdisc/_version.py"
 testpaths = [
     "tests",
 ]
-addopts = [
-    "--cov=rail",
-    "--cov-report=html"
-]
+# addopts = [
+#     "--cov=rail",
+#     "--cov-report=html"
+# ]
 
 [tool.pylint]
 disable = [
