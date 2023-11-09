@@ -24,13 +24,13 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - uses: conda-incubator/setup-miniconda@v2
+    - uses: mamba-org/setup-micromamba@v1
       with:
-        python-version: ${{ matrix.python-version }}
+        create-args: >-
+          python=${{ matrix.python-version }}
         channels: conda-forge,defaults
         channel-priority: strict
         show-channel-urls: true
-        use-mamba: true
         environment-file: ci-environment.yml
         activate-environment: deepdisc
 
