@@ -10,6 +10,7 @@ from deepdisc.data_format.image_readers import DC2ImageReader
 from deepdisc.data_format.register_data import register_data_set, register_loaded_data_set
 from deepdisc.model.loaders import (
     RedshiftFlatDictMapper,
+    RedshiftDictMapper,
     return_test_loader,
     return_train_loader,
 )
@@ -60,8 +61,18 @@ class DeepDiscInformer(CatInformer):
         cfg.optimizer.lr = 0.001
         #optimizer = return_optimizer(cfg)
         optimizer = solver.build_optimizer(cfg_loader, model)
-
         
+        '''
+        When using the single test dictionary, add this code and replace "mapper" below
+        
+        
+        def dc2_key_mapper(dataset_dict):
+            filename = dataset_dict["filename"]
+            return filename
+
+        IR = DC2ImageReader()
+        mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
+        '''
         
         mapper = RedshiftFlatDictMapper().map_data
         loader = data.build_detection_train_loader(train_data,mapper=mapper,total_batch_size=batch_size)
