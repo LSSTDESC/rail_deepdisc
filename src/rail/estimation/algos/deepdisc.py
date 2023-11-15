@@ -1,6 +1,7 @@
 import numpy as np
 from rail.estimation.estimator import CatEstimator, CatInformer
 from rail.core.data import TableHandle
+from rail.core.common_params import SHARED_PARAMS
 from detectron2.config import LazyConfig, get_cfg
 import detectron2.solver as solver
 import detectron2.data as data
@@ -23,7 +24,7 @@ from deepdisc.training.trainers import (
 from rail.deepdisc.configs import *
 from deepdisc.inference.match_objects import get_matched_object_classes_new, get_matched_z_pdfs_new, get_matched_z_points_new
 from deepdisc.inference.predictors import return_predictor_transformer
-
+import qp
 
 class DeepDiscInformer(CatInformer):
     """Placeholder for informer stage class"""
@@ -89,17 +90,17 @@ class DeepDiscEstimator(CatEstimator):
     name = 'DeepDiscEstimator'
     config_options = CatEstimator.config_options.copy()
     config_options.update()
-    
+
     outputs = [('output', TableHandle)]
-    
+
     def __init__(self, args, comm=None):
         """ Constructor:
         Do Estimator specific initialization """
-        
+
         self.nnmodel = None
         CatEstimator.__init__(self, args, comm=comm)
-        
-    
+
+
     def open_model(self, **kwargs):
         CatEstimator.open_model(self, **kwargs)
         if self.model is not None:
@@ -107,20 +108,20 @@ class DeepDiscEstimator(CatEstimator):
 
     def run(self):
         test_data = self.get_data('input')
-        
+
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
         numclasses = self.config.numclasses
         epochs = self.config.epochs
         output_dir = self.config.output_dir
         output_name = self.config.output_name
-        
-        
+
+
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size, epochs)
-        
+
         cfg.train.init_checkpoint = os.path.join(output_dir,output_name)+'.pth'
-        
+
         # Process test images same way as training set
         predictor = return_predictor_transformer(cfg, cfg_loader)
         mapper = RedshiftFlatDictMapper().map_data
@@ -131,16 +132,84 @@ class DeepDiscEstimator(CatEstimator):
         for row in test_data:
             dds.append(mapper(row))
         dataset_dicts['test'] = dds
-        
-        
+
+
         print("Matching objects")
         true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
         self.true_zs, self.preds = get_matched_z_points_new(dataset_dicts["test"], predictor)
         #self.pred = self.preds.squeeze()
-        
+
     def finalize(self):
         preds = np.array(self.preds)
         self.add_handle('output', data=preds)
 
+        
+class DeepDiscPDFEstimator(CatEstimator):
+    """DeepDISC estimator
+    """
+    name = 'DeepDiscPDFEstimator'
+    config_options = CatEstimator.config_options.copy()
+    config_options.update()
+    #config_options.update(hdf5_groupname=SHARED_PARAMS)
+    
+    def __init__(self, args, comm=None):
+        """ Constructor:
+        Do Estimator specific initialization """
+        self.nnmodel = None
+        CatEstimator.__init__(self, args, comm=comm)
+        #self.config.hdf5_groupname = None
+    
+    def open_model(self, **kwargs):
+        CatEstimator.open_model(self, **kwargs)
+        if self.model is not None:
+            self.nnmodel = self.model['nnmodel']
+    
+
+    def run(self):
+        """
+        calculate and return PDFs for each galaxy using the trained flow
+        """
+        
+        #self.open_model(**self.config)
+        
+        test_data = self.get_data('input')
+        
+        cfgfile = self.config.cfgfile
+        batch_size = self.config.batch_size
+        numclasses = self.config.numclasses
+        epochs = self.config.epochs
+        output_dir = self.config.output_dir
+        output_name = self.config.output_name
+
+        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+        cfg_loader = get_loader_config(output_dir, batch_size, epochs)
+        cfg.train.init_checkpoint = os.path.join(output_dir,output_name)+'.pth'
+
+        self.predictor = return_predictor_transformer(cfg, cfg_loader)
+        
+        # Process test images same way as training set
+        mapper = RedshiftFlatDictMapper().map_data
+
+        print('Processing Data')
+        dataset_dicts={}
+        dds = []
+        for row in test_data:
+            dds.append(mapper(row))
+        dataset_dicts['test'] = dds
+        
+        self.zgrid = np.linspace(-1, 5, 200)
+
+        print("Matching objects")
+        #true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
+        true_zs, pdfs = get_matched_z_pdfs_new(dataset_dicts["test"], self.predictor)
+        self.pdfs = np.array(pdfs)
+
+
+    def finalize(self):
+        zmode = np.array([self.zgrid[np.argmax(pdf)] for pdf in self.pdfs]).flatten()
+        qp_distn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
+        qp_distn.set_ancil(dict(zmode=zmode))
+        qp_distn = self.calculate_point_estimates(qp_distn)
+        self.add_handle('output', data=qp_distn)
         
         

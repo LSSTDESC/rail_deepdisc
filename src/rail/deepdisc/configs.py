@@ -18,9 +18,9 @@ def get_lazy_config(cfgfile, batch_size, numclasses):
     cfg.model.pixel_mean = [0.00604957, 0.0097893, 0.02428164, 0.04782381, 0.06689043, 0.07634047]
     cfg.model.pixel_std = [0.07637636, 0.07277052, 0.19012378, 0.42937884, 0.5813913, 0.65684605]
 
-    #cfg.model.roi_heads.num_components = 1
-    #cfg.model.roi_heads._target_ = RedshiftPointCasROIHeads
-    cfg.model.roi_heads._target_ = RedshiftPointROIHeads
+    cfg.model.roi_heads.num_components = 1
+    cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
+    #cfg.model.roi_heads._target_ = RedshiftPointROIHeads
     cfg.model.roi_heads.box_predictor.test_score_thresh = 0.5
     cfg.model.proposal_generator.nms_thresh = 0.3
     
