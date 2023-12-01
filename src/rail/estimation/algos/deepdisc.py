@@ -4,8 +4,8 @@ import numpy as np
 import qp
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
-from deepdisc.data_format.register_data import (register_data_set,
-                                                register_loaded_data_set)
+from deepdisc.data_format.register_data import register_data_set
+                                                #register_loaded_data_set)
 from deepdisc.inference.match_objects import (get_matched_object_classes_new,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
@@ -216,6 +216,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         print("Matching objects")
         # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
         true_zs, pdfs = get_matched_z_pdfs_new(dataset_dicts["test"], self.predictor)
+        print(true_zs, pdfs)
         self.pdfs = np.array(pdfs)
 
     def finalize(self):
