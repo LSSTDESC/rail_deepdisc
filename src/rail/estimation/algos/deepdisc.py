@@ -4,7 +4,7 @@ import numpy as np
 import qp
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
-#from deepdisc.data_format.register_data import (register_data_set,
+# from deepdisc.data_format.register_data import (register_data_set,
 #                                                register_loaded_data_set)
 from deepdisc.inference.match_objects import (get_matched_object_classes_new,
                                               get_matched_z_pdfs_new,
@@ -29,15 +29,12 @@ class DeepDiscDictInformer(CatInformer):
 
     name = "DeepDiscDictInformer"
     config_options = CatInformer.config_options.copy()
-    
-    inputs = [('images', TableHandle), 
-              ('metadata', TableHandle)]
-    
-    
+
+    inputs = [("images", TableHandle), ("metadata", TableHandle)]
+
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
-        
-        
+
     def inform(self, images, metadata):
         """The main interface method for Informers
 
@@ -62,12 +59,12 @@ class DeepDiscDictInformer(CatInformer):
         model : ModelHandle
             Handle providing access to trained model
         """
-        self.set_data('images', images)
-        self.set_data('metadata', metadata)
+        self.set_data("images", images)
+        self.set_data("metadata", metadata)
 
         self.run()
         self.finalize()
-        return self.get_handle('model')
+        return self.get_handle("model")
 
     def run(self):
         """
@@ -75,7 +72,7 @@ class DeepDiscDictInformer(CatInformer):
         """
         train_data = self.get_data("images")
         metadata = self.get_data("metadata")
-        
+
         print(metadata)
 
         cfgfile = self.config.cfgfile
@@ -132,7 +129,6 @@ class DeepDiscDictInformer(CatInformer):
 
         self.model = dict(nnmodel=model)
         self.add_data("model", self.model)
-
 
 
 class DeepDiscInformer(CatInformer):
@@ -308,8 +304,8 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size, epochs)
-        #cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
-        cfg.train.init_checkpoint = '/home/g4merz/deepdisc/Swin_test.pth'
+        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
+
         self.predictor = return_predictor_transformer(cfg, cfg_loader)
 
         # Process test images same way as training set
