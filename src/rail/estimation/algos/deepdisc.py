@@ -308,8 +308,8 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size, epochs)
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
-
+        #cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
+        cfg.train.init_checkpoint = '/home/g4merz/deepdisc/Swin_test.pth'
         self.predictor = return_predictor_transformer(cfg, cfg_loader)
 
         # Process test images same way as training set
