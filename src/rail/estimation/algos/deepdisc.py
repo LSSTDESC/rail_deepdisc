@@ -4,8 +4,8 @@ import numpy as np
 import qp
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
-from deepdisc.data_format.register_data import (register_data_set,
-                                                register_loaded_data_set)
+# from deepdisc.data_format.register_data import (register_data_set,
+#                                                register_loaded_data_set)
 from deepdisc.inference.match_objects import (get_matched_object_classes_new,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
@@ -22,6 +22,113 @@ from rail.core.data import TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
+
+
+class DeepDiscDictInformer(CatInformer):
+    """Placeholder for informer stage class"""
+
+    name = "DeepDiscDictInformer"
+    config_options = CatInformer.config_options.copy()
+
+    inputs = [("images", TableHandle), ("metadata", TableHandle)]
+
+    def __init__(self, args, comm=None):
+        CatInformer.__init__(self, args, comm=comm)
+
+    def inform(self, images, metadata):
+        """The main interface method for Informers
+
+        This will attach the input_data to this `Informer`
+        (for introspection and provenance tracking).
+
+        Then it will call the run() and finalize() methods, which need to
+        be implemented by the sub-classes.
+
+        The run() method will need to register the model that it creates to this Estimator
+        by using `self.add_data('model', model)`.
+
+        Finally, this will return a ModelHandle providing access to the trained model.
+
+        Parameters
+        ----------
+        input_data : `dict` or `TableHandle`
+            dictionary of all input data, or a `TableHandle` providing access to it
+
+        Returns
+        -------
+        model : ModelHandle
+            Handle providing access to trained model
+        """
+        self.set_data("images", images)
+        self.set_data("metadata", metadata)
+
+        self.run()
+        self.finalize()
+        return self.get_handle("model")
+
+    def run(self):
+        """
+        Train a inception NN on a fraction of the training data
+        """
+        train_data = self.get_data("images")
+        metadata = self.get_data("metadata")
+
+        print(metadata)
+
+        cfgfile = self.config.cfgfile
+        batch_size = self.config.batch_size
+        numclasses = self.config.numclasses
+        epochs = self.config.epochs
+        output_dir = self.config.output_dir
+        output_name = self.config.output_name
+
+        val_per = 5
+
+        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+        cfg_loader = get_loader_config(output_dir, batch_size, epochs)
+
+        model = return_lazy_model(cfg)
+        cfg.optimizer.params.model = model
+        cfg.optimizer.lr = 0.001
+        # optimizer = return_optimizer(cfg)
+        optimizer = solver.build_optimizer(cfg_loader, model)
+
+        """
+        When using the single test dictionary, add this code and replace "mapper" below
+        
+        
+        def dc2_key_mapper(dataset_dict):
+            filename = dataset_dict["filename"]
+            return filename
+
+        IR = DC2ImageReader()
+        mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
+        """
+
+        mapper = RedshiftFlatDictMapper().map_data
+        loader = d2data.build_detection_train_loader(
+            train_data, mapper=mapper, total_batch_size=batch_size
+        )
+        test_loader = d2data.build_detection_test_loader(
+            train_data, mapper=mapper, batch_size=batch_size
+        )
+
+        saveHook = return_savehook(output_name)
+        lossHook = return_evallosshook(val_per, model, test_loader)
+        schedulerHook = return_schedulerhook(optimizer)
+        hookList = [lossHook, schedulerHook, saveHook]
+
+        trainer = return_lazy_trainer(
+            model, loader, optimizer, cfg, cfg_loader, hookList
+        )
+
+        trainer.set_period(5)
+
+        print("Model training:")
+        trainer.train(0, epochs)
+
+        self.model = dict(nnmodel=model)
+        self.add_data("model", self.model)
 
 
 class DeepDiscInformer(CatInformer):
