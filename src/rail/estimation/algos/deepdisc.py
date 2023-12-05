@@ -1,3 +1,5 @@
+import tempfile
+import os
 import detectron2.data as d2data
 import detectron2.solver as solver
 import numpy as np
@@ -23,7 +25,7 @@ from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
 
-
+#! I don't think this class is used any more - confirm with Grant
 class DeepDiscDictInformer(CatInformer):
     """Placeholder for informer stage class"""
 
@@ -143,11 +145,41 @@ class DeepDiscInformer(CatInformer):
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
 
+    def inform(self, training_data, metadata):
+        self.set_data('input', training_data)
+        self.set_data('metadata', metadata)
+        self.run()
+        self.finalize()
+        return self.get_handle('model')
+
+    def finalize(self):
+        self.temp_dir.cleanup()
+
     def run(self):
         """
         Train a inception NN on a fraction of the training data
         """
         train_data = self.get_data("input")
+        metadata = self.get_data("metadata")
+
+        # create an iterator here
+        itr = self.input_iterator("input")
+        self.temp_dir = tempfile.TemporaryDirectory()
+        for start_idx, _, chunk in itr:
+            for idx, image in enumerate(chunk):
+                this_img_metadata = metadata[start_idx + idx]
+                height = this_img_metadata["height"]
+                width = this_img_metadata["width"]
+
+                #! This spot could have bugs width, height, or height, width???
+                reformed_image = image.reshape(6, width, height).astype(np.float32)
+
+                filename = f'image_{start_idx + idx}.npy'
+                file_path = os.path.join(self.temp_dir.name, filename)
+                np.save(file_path, reformed_image)
+
+                # we want the dictionary associated with this particular image.
+                metadata[start_idx + idx]['filename'] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
@@ -156,7 +188,7 @@ class DeepDiscInformer(CatInformer):
         output_dir = self.config.output_dir
         output_name = self.config.output_name
 
-        val_per = 5
+        val_per = 5 # Should be included as an input config parameter.
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size, epochs)
@@ -167,28 +199,28 @@ class DeepDiscInformer(CatInformer):
         # optimizer = return_optimizer(cfg)
         optimizer = solver.build_optimizer(cfg_loader, model)
 
-        """
-        When using the single test dictionary, add this code and replace "mapper" below
-        
-        
+
+        #When using the single test dictionary, add this code and replace "mapper" below
         def dc2_key_mapper(dataset_dict):
             filename = dataset_dict["filename"]
             return filename
 
         IR = DC2ImageReader()
         mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
-        """
+        
 
-        mapper = RedshiftFlatDictMapper().map_data
+        # mapper = RedshiftFlatDictMapper().map_data
+
         loader = d2data.build_detection_train_loader(
-            train_data, mapper=mapper, total_batch_size=batch_size
+            metadata, mapper=mapper, total_batch_size=batch_size
         )
-        test_loader = d2data.build_detection_test_loader(
-            train_data, mapper=mapper, batch_size=batch_size
+
+        eval_loader = d2data.build_detection_test_loader(
+            metadata, mapper=mapper, batch_size=batch_size
         )
 
         saveHook = return_savehook(output_name)
-        lossHook = return_evallosshook(val_per, model, test_loader)
+        lossHook = return_evallosshook(val_per, model, eval_loader)
         schedulerHook = return_schedulerhook(optimizer)
         hookList = [lossHook, schedulerHook, saveHook]
 
@@ -196,15 +228,17 @@ class DeepDiscInformer(CatInformer):
             model, loader, optimizer, cfg, cfg_loader, hookList
         )
 
+        # how often the trainer prints something to screen, could be a config
         trainer.set_period(5)
 
         print("Model training:")
         trainer.train(0, epochs)
 
+        #! Question for Grant, what is it that we actually want to save here?
         self.model = dict(nnmodel=model)
         self.add_data("model", self.model)
 
-
+#! I don't think we actually use this class???
 class DeepDiscEstimator(CatEstimator):
     """DeepDISC estimator"""
 
