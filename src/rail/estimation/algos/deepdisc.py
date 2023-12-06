@@ -39,10 +39,12 @@ class DeepDiscInformer(CatInformer):
         CatInformer.__init__(self, args, comm=comm)
 
     def inform(self, training_data, metadata):
-        self.set_data('input', training_data)
-        self.set_data('metadata', metadata)
-        self.run()
-        self.finalize()
+        with tempfile.TemporaryDirectory() as temp_directory_name: 
+            self.temp_dir = temp_directory_name
+            self.set_data('input', training_data)
+            self.set_data('metadata', metadata)
+            self.run()
+            self.finalize()
         return self.get_handle('model')
 
     def finalize(self):
@@ -57,7 +59,6 @@ class DeepDiscInformer(CatInformer):
 
         # create an iterator here
         itr = self.input_iterator("input")
-        self.temp_dir = tempfile.TemporaryDirectory()
         for start_idx, _, chunk in itr:
             for idx, image in enumerate(chunk['images']):
                 this_img_metadata = metadata[start_idx + idx]
