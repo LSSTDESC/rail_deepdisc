@@ -59,7 +59,7 @@ class DeepDiscInformer(CatInformer):
         itr = self.input_iterator("input")
         self.temp_dir = tempfile.TemporaryDirectory()
         for start_idx, _, chunk in itr:
-            for idx, image in enumerate(chunk):
+            for idx, image in enumerate(chunk['images']):
                 this_img_metadata = metadata[start_idx + idx]
                 height = this_img_metadata["height"]
                 width = this_img_metadata["width"]
@@ -81,7 +81,7 @@ class DeepDiscInformer(CatInformer):
         output_dir = self.config.output_dir
         output_name = self.config.output_name
 
-        val_per = 5 # Should be included as an input config parameter.
+        val_per = 1000 # Should be included as an input config parameter.
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size, epochs)
