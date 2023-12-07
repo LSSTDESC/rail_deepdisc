@@ -36,8 +36,8 @@ class DeepDiscInformer(CatInformer):
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
-        epochs=Param(int, 20, required=False, msg="How many epochs to train for."),
+        numclasses=Param(int, 1, required=False, msg="The number of classes to predict."),
+        epochs=Param(int, 20, required=False, msg="Number of epochs to train for."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="Name of the saved model."),
         chunk_size=Param(int, 100, required=False, msg=""), # TODO we define this in deep_dict in the notebook, but we don't use it - is this an option we want to add?
@@ -154,19 +154,16 @@ class DeepDiscEstimator(CatEstimator):
 
     name = "DeepDiscEstimator"
     config_options = CatEstimator.config_options.copy()
-    """
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_estimator", required=False, msg="Name of the saved model."),
+        output_dir=Param(str, "./", required=False, msg=""),
+        output_name=Param(str, "deepdisc_estimator", required=False, msg=""),
         chunk_size=Param(int, 100, required=False, msg=""), # TODO (same question as above)
     )
-    """
-    # TODO: what was the verdict on including hdf5_groupname as an input param?
-
+    # TODO : same hdf5_groupname question
     outputs = [("output", TableHandle)]
 
     def __init__(self, args, comm=None):
@@ -234,8 +231,8 @@ class DeepDiscPDFEstimator(CatEstimator):
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_estimator", required=False, msg="Name of the saved model."),
+        output_dir=Param(str, "./", required=False, msg=""),
+        output_name=Param(str, "deepdisc_pdf_estimator", required=False, msg=""),
         chunk_size=Param(int, 100, required=False, msg=""), # TODO (same question as above)
     )
     # config_options.update(hdf5_groupname=SHARED_PARAMS) 
