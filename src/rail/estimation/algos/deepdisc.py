@@ -48,8 +48,8 @@ class DeepDiscInformer(CatInformer):
         return self.get_handle('model')
 
     def finalize(self):
-        self.temp_dir.cleanup()
-
+        pass
+    
     def run(self):
         """
         Train a inception NN on a fraction of the training data
@@ -69,7 +69,7 @@ class DeepDiscInformer(CatInformer):
                 reformed_image = image.reshape(6, width, height).astype(np.float32)
 
                 filename = f'image_{start_idx + idx}.npy'
-                file_path = os.path.join(self.temp_dir.name, filename)
+                file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
                 # we want the dictionary associated with this particular image.
@@ -209,6 +209,15 @@ class DeepDiscPDFEstimator(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
         # self.config.hdf5_groupname = None
 
+    def estimate(self, input_data, metadata):
+        with tempfile.TemporaryDirectory() as temp_directory_name:
+            self.temp_dir = temp_directory_name
+            self.set_data('input', input_data)
+            self.set_data('metadata', metadata)
+            self.run()
+            self.finalize()
+        return self.get_handle('output')
+        
     def open_model(self, **kwargs):
         CatEstimator.open_model(self, **kwargs)
         if self.model is not None:
@@ -222,6 +231,24 @@ class DeepDiscPDFEstimator(CatEstimator):
         # self.open_model(**self.config)
 
         test_data = self.get_data("input")
+        metadata = self.get_data("metadata")
+        
+        itr = self.input_iterator("input")
+        for start_idx, _, chunk in itr:
+            for idx, image in enumerate(chunk['images']):
+                this_img_metadata = metadata[start_idx + idx]
+                height = this_img_metadata["height"]
+                width = this_img_metadata["width"]
+
+                # Note well: the predictor assumes a different image shape than the informer. 
+                reformed_image = image.reshape(width, height, 6).astype(np.float32)
+
+                filename = f'image_{start_idx + idx}.npy'
+                file_path = os.path.join(self.temp_dir, filename)
+                np.save(file_path, reformed_image)
+
+                # we want the dictionary associated with this particular image.
+                metadata[start_idx + idx]['filename'] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
@@ -237,23 +264,28 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.predictor = return_predictor_transformer(cfg, cfg_loader)
 
         # Process test images same way as training set
-        mapper = RedshiftFlatDictMapper().map_data
+        def dc2_key_mapper(dataset_dict):
+            filename = dataset_dict["filename"]
+            return filename
+
+        IR = DC2ImageReader()
+        mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
 
         print("Processing Data")
-        dataset_dicts = {}
-        dds = []
-        for row in test_data:
-            dds.append(mapper(row))
-        dataset_dicts["test"] = dds
-
-        self.zgrid = np.linspace(-1, 5, 200)
+#         dataset_dicts = {}
+#         dds = []
+#         for row in test_data:
+#             dds.append(mapper(row))
+#         dataset_dicts["test"] = dds
 
         print("Matching objects")
         # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
-        true_zs, pdfs = get_matched_z_pdfs_new(dataset_dicts["test"], self.predictor)
+        true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
         self.pdfs = np.array(pdfs)
 
     def finalize(self):
+        self.zgrid = np.linspace(-1, 5, 200)
+
         zmode = np.array([self.zgrid[np.argmax(pdf)] for pdf in self.pdfs]).flatten()
         qp_distn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
         qp_distn.set_ancil(dict(zmode=zmode))
