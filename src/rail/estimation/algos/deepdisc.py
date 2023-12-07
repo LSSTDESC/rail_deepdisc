@@ -20,7 +20,7 @@ from deepdisc.training.trainers import (return_evallosshook,
                                         return_savehook, return_schedulerhook)
 from detectron2.config import LazyConfig, get_cfg
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import TableHandle
+from rail.core.data import TableHandle, JsonHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
@@ -34,6 +34,9 @@ class DeepDiscInformer(CatInformer):
     # Add defaults and a help message
     # e.g. cfgfile = Param(str, None, required=True,
     #        msg="The primary configuration file for the deepdisc models."),
+    
+    inputs = [('input', TableHandle), ('metadata', JsonHandle)]
+    #outputs = [('model', ModelHandle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
@@ -54,9 +57,10 @@ class DeepDiscInformer(CatInformer):
         """
         Train a inception NN on a fraction of the training data
         """
-        train_data = self.get_data("input")
+        #train_data = self.get_data("input")
         metadata = self.get_data("metadata")
 
+        print('caching data')
         # create an iterator here
         itr = self.input_iterator("input")
         for start_idx, _, chunk in itr:
@@ -116,7 +120,9 @@ class DeepDiscInformer(CatInformer):
         saveHook = return_savehook(output_name)
         lossHook = return_evallosshook(val_per, model, eval_loader)
         schedulerHook = return_schedulerhook(optimizer)
-        hookList = [lossHook, schedulerHook, saveHook]
+        #removing the eval loss eval hook for testing as it slows down the training
+        #hookList = [lossHook, schedulerHook, saveHook]
+        hookList = [schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
             model, loader, optimizer, cfg, cfg_loader, hookList
@@ -198,8 +204,10 @@ class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
     name = "DeepDiscPDFEstimator"
-    config_options = CatEstimator.config_options.copy()
-    config_options.update()
+    config_options = CatInformer.config_options.copy()
+    inputs = [('input', TableHandle), ('metadata', JsonHandle)]
+
+    #config_options.update()
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
 
     def __init__(self, args, comm=None):
@@ -230,7 +238,7 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         # self.open_model(**self.config)
 
-        test_data = self.get_data("input")
+        #test_data = self.get_data("input")
         metadata = self.get_data("metadata")
         
         itr = self.input_iterator("input")
