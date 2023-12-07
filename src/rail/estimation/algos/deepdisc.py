@@ -98,15 +98,11 @@ class DeepDiscInformer(CatInformer):
         # optimizer = return_optimizer(cfg)
         optimizer = solver.build_optimizer(cfg_loader, model)
 
-
-        #When using the single test dictionary, add this code and replace "mapper" below
-        def dc2_key_mapper(dataset_dict):
-            filename = dataset_dict["filename"]
-            return filename
-
         IR = DC2ImageReader()
         mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
-        
+        mapper = RedshiftDictMapper(
+            IR, lambda dataset_dict: dataset_dict["filename"]
+        ).map_data
 
         # mapper = RedshiftFlatDictMapper().map_data
 
@@ -274,13 +270,10 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         self.predictor = return_predictor_transformer(cfg, cfg_loader)
 
-        # Process test images same way as training set
-        def dc2_key_mapper(dataset_dict):
-            filename = dataset_dict["filename"]
-            return filename
-
         IR = DC2ImageReader()
-        mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
+        mapper = RedshiftDictMapper(
+            IR, lambda dataset_dict: dataset_dict["filename"]
+        ).map_data
 
         print("Processing Data")
 #         dataset_dicts = {}
