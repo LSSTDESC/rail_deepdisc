@@ -66,9 +66,9 @@ class DeepDiscInformer(CatInformer):
         flattened_image_iterator = self.input_iterator("input")
         for start_idx, _, images in flattened_image_iterator:
             for image_idx, image in enumerate(images['images']):
-                this_img_metadata = metadata[start_idx + image_idx]
-                image_height = this_img_metadata["height"]
-                image_width = this_img_metadata["width"]
+                image_metadata = metadata[start_idx + image_idx]
+                image_height = image_metadata["height"]
+                image_width = image_metadata["width"]
 
                 #! This spot could have bugs width, height, or height, width???
                 reformed_image = image.reshape(6, image_width, image_height).astype(np.float32)
@@ -247,9 +247,9 @@ class DeepDiscPDFEstimator(CatEstimator):
         flattened_image_iterator = self.input_iterator("input")
         for start_idx, _, images in flattened_image_iterator:
             for image_idx, image in enumerate(images['images']):
-                this_img_metadata = metadata[start_idx + image_idx]
-                image_height = this_img_metadata["height"]
-                image_width = this_img_metadata["width"]
+                image_metadata = metadata[start_idx + image_idx]
+                image_height = image_metadata["height"]
+                image_width = image_metadata["width"]
 
                 # Note well: the predictor assumes a different image shape than the informer. 
                 reformed_image = image.reshape(6, image_width, image_height).astype(np.float32)
