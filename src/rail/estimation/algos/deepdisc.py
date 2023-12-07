@@ -42,11 +42,11 @@ class DeepDiscInformer(CatInformer):
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
 
-    def inform(self, training_data, metadata):
+    def inform(self, training_data, training_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name: 
             self.temp_dir = temp_directory_name
             self.set_data('input', training_data)
-            self.set_data('metadata', metadata)
+            self.set_data('metadata', training_metadata)
             self.run()
             self.finalize()
         return self.get_handle('model')
@@ -63,22 +63,22 @@ class DeepDiscInformer(CatInformer):
 
         print('caching data')
         # create an iterator here
-        itr = self.input_iterator("input")
-        for start_idx, _, chunk in itr:
-            for idx, image in enumerate(chunk['images']):
-                this_img_metadata = metadata[start_idx + idx]
-                height = this_img_metadata["height"]
-                width = this_img_metadata["width"]
+        flattened_image_iterator = self.input_iterator("input")
+        for start_idx, _, images in flattened_image_iterator:
+            for image_idx, image in enumerate(images['images']):
+                this_img_metadata = metadata[start_idx + image_idx]
+                image_height = this_img_metadata["height"]
+                image_width = this_img_metadata["width"]
 
                 #! This spot could have bugs width, height, or height, width???
-                reformed_image = image.reshape(6, width, height).astype(np.float32)
+                reformed_image = image.reshape(6, image_width, image_height).astype(np.float32)
 
-                filename = f'image_{start_idx + idx}.npy'
+                filename = f'image_{start_idx + image_idx}.npy'
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
                 # we want the dictionary associated with this particular image.
-                metadata[start_idx + idx]['filename'] = file_path
+                metadata[start_idx + image_idx]['filename'] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
@@ -244,22 +244,22 @@ class DeepDiscPDFEstimator(CatEstimator):
         metadata = self.get_data("metadata")
         
         print('caching data')
-        itr = self.input_iterator("input")
-        for start_idx, _, chunk in itr:
-            for idx, image in enumerate(chunk['images']):
-                this_img_metadata = metadata[start_idx + idx]
-                height = this_img_metadata["height"]
-                width = this_img_metadata["width"]
+        flattened_image_iterator = self.input_iterator("input")
+        for start_idx, _, images in flattened_image_iterator:
+            for image_idx, image in enumerate(images['images']):
+                this_img_metadata = metadata[start_idx + image_idx]
+                image_height = this_img_metadata["height"]
+                image_width = this_img_metadata["width"]
 
                 # Note well: the predictor assumes a different image shape than the informer. 
-                reformed_image = image.reshape(6, width, height).astype(np.float32)
+                reformed_image = image.reshape(6, image_width, image_height).astype(np.float32)
 
-                filename = f'image_{start_idx + idx}.npy'
+                filename = f'image_{start_idx + image_idx}.npy'
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
                 # we want the dictionary associated with this particular image.
-                metadata[start_idx + idx]['filename'] = file_path
+                metadata[start_idx + image_idx]['filename'] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
