@@ -98,10 +98,8 @@ class DeepDiscInformer(CatInformer):
         # optimizer = return_optimizer(cfg)
         optimizer = solver.build_optimizer(cfg_loader, model)
 
-        IR = DC2ImageReader()
-        mapper = RedshiftDictMapper(IR, dc2_key_mapper).map_data
         mapper = RedshiftDictMapper(
-            IR, lambda dataset_dict: dataset_dict["filename"]
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
         # mapper = RedshiftFlatDictMapper().map_data
