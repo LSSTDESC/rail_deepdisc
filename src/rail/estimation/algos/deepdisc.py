@@ -10,6 +10,7 @@ from deepdisc.data_format.image_readers import DC2ImageReader
 #                                                register_loaded_data_set)
 from deepdisc.inference.match_objects import (get_matched_object_classes_new,
                                               get_matched_z_pdfs_new,
+                                              get_matched_z_pdfs,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
 from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper,
@@ -241,6 +242,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         #test_data = self.get_data("input")
         metadata = self.get_data("metadata")
         
+        print('caching data')
         itr = self.input_iterator("input")
         for start_idx, _, chunk in itr:
             for idx, image in enumerate(chunk['images']):
@@ -249,7 +251,7 @@ class DeepDiscPDFEstimator(CatEstimator):
                 width = this_img_metadata["width"]
 
                 # Note well: the predictor assumes a different image shape than the informer. 
-                reformed_image = image.reshape(width, height, 6).astype(np.float32)
+                reformed_image = image.reshape(6, width, height).astype(np.float32)
 
                 filename = f'image_{start_idx + idx}.npy'
                 file_path = os.path.join(self.temp_dir, filename)
@@ -288,7 +290,9 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         print("Matching objects")
         # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
-        true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
+        #true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
+        true_zs, pdfs = get_matched_z_pdfs(metadata, IR, dc2_key_mapper, self.predictor)
+
         self.pdfs = np.array(pdfs)
 
     def finalize(self):
