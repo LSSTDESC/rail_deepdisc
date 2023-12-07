@@ -268,9 +268,8 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         self.predictor = return_predictor_transformer(cfg, cfg_loader)
 
-        IR = DC2ImageReader()
         mapper = RedshiftDictMapper(
-            IR, lambda dataset_dict: dataset_dict["filename"]
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
         print("Processing Data")
