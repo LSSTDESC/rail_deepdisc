@@ -21,7 +21,7 @@ from deepdisc.training.trainers import (return_evallosshook,
                                         return_savehook, return_schedulerhook)
 from detectron2.config import LazyConfig, get_cfg
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import TableHandle, JsonHandle
+from rail.core.data import TableHandle, JsonHandle, Hdf5Handle, QPHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
@@ -207,6 +207,7 @@ class DeepDiscPDFEstimator(CatEstimator):
     name = "DeepDiscPDFEstimator"
     config_options = CatInformer.config_options.copy()
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
+    outputs =[('output', QPHandle), ('truth',TableHandle)]
 
     #config_options.update()
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
@@ -292,7 +293,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
         #true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
         true_zs, pdfs = get_matched_z_pdfs(metadata, IR, dc2_key_mapper, self.predictor)
-
+        self.true_zs = true_zs
         self.pdfs = np.array(pdfs)
 
     def finalize(self):
@@ -303,3 +304,6 @@ class DeepDiscPDFEstimator(CatEstimator):
         qp_distn.set_ancil(dict(zmode=zmode))
         qp_distn = self.calculate_point_estimates(qp_distn)
         self.add_handle("output", data=qp_distn)
+        truth_dict = dict(redshift=self.true_zs)
+        #truth = DS.add_data("truth", truth_dict, TableHandle)
+        self.add_handle("truth", data=truth_dict)
