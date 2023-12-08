@@ -39,9 +39,9 @@ class DeepDiscInformer(CatInformer):
     # e.g. cfgfile = Param(str, None, required=True,
     #        msg="The primary configuration file for the deepdisc models."),
     
-    port = 2**15 + 2**14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-    dist_url="tcp://127.0.0.1:{}".format(port)
-    config_options.update(dist_url=dist_url, machine_rank=0, num_machines=1)
+    #port = 2**15 + 2**14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+    #dist_url="tcp://127.0.0.1:{}".format(port)
+    #config_options.update(dist_url=dist_url, machine_rank=0, num_machines=1)
     
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
     #outputs = [('model', ModelHandle)]
@@ -210,14 +210,21 @@ class DeepDiscInformer(CatInformer):
 
         self.metadata = metadata
                 
+        num_gpus = self.config.num_gpus  
+        num_machines = 1
+        machine_rank = 1
+        
+        port = 2**15 + 2**14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+        dist_url="tcp://127.0.0.1:{}".format(port)
+            
         print("Training head layers")
         train_head = True
         launch(
             self.train,
-            self.config.num_gpus,
-            num_machines=self.config.num_machines,
-            machine_rank=self.config.machine_rank,
-            dist_url=self.config.dist_url,
+            num_gpus,
+            num_machines=num_machines,
+            machine_rank=machine_rank,
+            dist_url=dist_url,
             args=(
                 train_head,
             ),
