@@ -219,11 +219,11 @@ class DeepDiscPDFEstimator(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
         # self.config.hdf5_groupname = None
 
-    def estimate(self, input_data, metadata):
+    def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
             self.set_data('input', input_data)
-            self.set_data('metadata', metadata)
+            self.set_data('metadata', input_metadata)
             self.run()
             self.finalize()
         return self.get_handle('output')
