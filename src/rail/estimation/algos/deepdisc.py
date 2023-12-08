@@ -282,7 +282,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         print("Matching objects")
         # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
         #true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
-        true_zs, pdfs = get_matched_z_pdfs(metadata, IR, dc2_key_mapper, self.predictor)
+        true_zs, pdfs = get_matched_z_pdfs(metadata, DC2ImageReader(), dc2_key_mapper, self.predictor)
         self.true_zs = true_zs
         self.pdfs = np.array(pdfs)
 
