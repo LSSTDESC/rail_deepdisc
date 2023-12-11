@@ -33,7 +33,6 @@ from rail.deepdisc.configs import *
 
 
 def train(config, metadata, train_head=True):
-    print("In train method")
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
     numclasses = config["numclasses"]
