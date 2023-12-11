@@ -39,7 +39,7 @@ class DeepDiscInformer(CatInformer):
         epochs=Param(int, 20, required=False, msg="Number of epochs to train for."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="Name of the saved model."),
-        chunk_size=Param(int, 100, required=False, msg=""), # TODO we define this in deep_dict in the notebook, but we don't use it - is this an option we want to add?
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO what was the verdict on including hdf5_groupname as an input param?
     
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
@@ -153,7 +153,7 @@ class DeepDiscEstimator(CatEstimator):
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg=""),
         output_name=Param(str, "deepdisc_estimator", required=False, msg=""),
-        chunk_size=Param(int, 100, required=False, msg=""), # TODO (same chunk_size question as above)
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO (same hdf5_groupname question as above)
     
     outputs = [("output", TableHandle)]
@@ -223,7 +223,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg=""),
         output_name=Param(str, "deepdisc_pdf_estimator", required=False, msg=""),
-        chunk_size=Param(int, 100, required=False, msg=""), # TODO (same chunk_size question as above)
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO (same hdf5_groupname question as above)
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
     
