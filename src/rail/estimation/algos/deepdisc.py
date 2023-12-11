@@ -208,7 +208,7 @@ class DeepDiscInformer(CatInformer):
         self.metadata = metadata
 
         num_gpus = self.config.num_gpus
-        num_machines = 1
+        num_machines = self.config.num_machines
         machine_rank = self.config.machine_rank
 
         port = (
