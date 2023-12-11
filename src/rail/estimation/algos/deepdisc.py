@@ -32,15 +32,15 @@ from rail.deepdisc.configs import *
 
 def train(config, metadata, train_head=True):
     print('In train method')
-    cfgfile = config.cfgfile
-    batch_size = config.batch_size
-    numclasses = config.numclasses
-    output_dir = config.output_dir
-    output_name = config.output_name
-    period = config.period
-    epoch = config.epoch
-    head_iters = config.head_iters
-    full_iters = config.full_iters
+    cfgfile = config['cfgfile']
+    batch_size = config['batch_size']
+    numclasses = config['numclasses']
+    output_dir = config['output_dir']
+    output_name = config['output_name']
+    period = config['period']
+    epoch = config['epoch']
+    head_iters = config['head_iters']
+    full_iters = config['full_iters']
 
     cfg = get_lazy_config(cfgfile, batch_size, numclasses)
     cfg_loader = get_loader_config(output_dir, batch_size)
@@ -219,7 +219,7 @@ class DeepDiscInformer(CatInformer):
             machine_rank=machine_rank,
             dist_url=dist_url,
             args=(
-                self.config,
+                self.config.to_dict(),
                 self.metadata,
                 train_head,
             ),
@@ -234,7 +234,7 @@ class DeepDiscInformer(CatInformer):
             machine_rank=self.config.machine_rank,
             dist_url=self.config.dist_url,
             args=(
-                self.config,
+                self.config.to_dict(),
                 self.metadata,
                 train_head,
             ),
