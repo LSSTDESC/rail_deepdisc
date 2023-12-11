@@ -30,6 +30,116 @@ from rail.estimation.estimator import CatEstimator, CatInformer
 from rail.deepdisc.configs import *
 
 
+def train(config, metadata, train_head=True):
+    print('In train method')
+    cfgfile = config.cfgfile
+    batch_size = config.batch_size
+    numclasses = config.numclasses
+    output_dir = config.output_dir
+    output_name = config.output_name
+    period = config.period
+    epoch = config.epoch
+    head_iters = config.head_iters
+    full_iters = config.full_iters
+
+    cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+    cfg_loader = get_loader_config(output_dir, batch_size)
+
+    e1 = epoch * 15
+    e2 = epoch * 10
+    e3 = epoch * 20
+    efinal = epoch * 35
+
+    val_per = epoch
+
+    mapper = RedshiftDictMapper(
+        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+    ).map_data
+
+    loader = d2data.build_detection_train_loader(
+        metadata, mapper=mapper, total_batch_size=batch_size
+    )
+
+    if train_head:
+        cfg.train.init_checkpoint = None
+
+        model = return_lazy_model(cfg)
+        for param in model.parameters():
+            param.requires_grad = False
+        # Phase 1: Unfreeze only the roi_heads
+        for param in model.roi_heads.parameters():
+            param.requires_grad = True
+        # Phase 2: Unfreeze region proposal generator with reduced lr
+        for param in model.proposal_generator.parameters():
+            param.requires_grad = True
+
+
+        cfg.optimizer.params.model = model
+        cfg.optimizer.lr = 0.001
+        # optimizer = return_optimizer(cfg)
+        optimizer = solver.build_optimizer(cfg_loader, model)
+        cfg_loader.SOLVER.MAX_ITER = e1  # for DefaultTrainer
+
+        saveHook = return_savehook(output_name)
+        #lossHook = return_evallosshook(val_per, model, eval_loader)
+        schedulerHook = return_schedulerhook(optimizer)
+        #removing the eval loss eval hook for testing as it slows down the training
+        #hookList = [lossHook, schedulerHook, saveHook]
+        hookList = [schedulerHook, saveHook]
+
+        trainer = return_lazy_trainer(
+            model, loader, optimizer, cfg, cfg_loader, hookList
+        )
+
+        # how often the trainer prints something to screen, could be a config
+        trainer.set_period(period)
+
+        trainer.train(0, head_iters)
+
+        if comm.is_main_process():
+            np.save(output_dir + output_name + "_losses", trainer.lossList)
+            #np.save(output_dir + output_name + "_val_losses", trainer.vallossList)
+
+        return model
+
+    else:
+        cfg.train.init_checkpoint = os.path.join(output_dir, output_name + ".pth")
+        cfg_loader.SOLVER.BASE_LR = 0.0001
+        cfg_loader.SOLVER.STEPS = [e2,e3]  # do not decay learning rate for retraining
+        cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
+
+        model = return_lazy_model(cfg)
+        cfg.optimizer.params.model = model
+        cfg.optimizer.lr = 0.0001
+        optimizer = solver.build_optimizer(cfg_loader, model)
+        cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
+
+
+        saveHook = return_savehook(output_name)
+        #lossHook = return_evallosshook(val_per, model, eval_loader)
+        schedulerHook = return_schedulerhook(optimizer)
+        #removing the eval loss eval hook for testing as it slows down the training
+        #hookList = [lossHook, schedulerHook, saveHook]
+        hookList = [schedulerHook, saveHook]
+
+        trainer = return_lazy_trainer(
+            model, loader, optimizer, cfg, cfg_loader, hookList
+        )
+
+        trainer.set_period(period)
+        trainer.train(0, full_iters)
+
+        if comm.is_main_process():
+            losses = np.load(output_dir + output_name + "_losses.npy")
+            losses = np.concatenate((losses, trainer.lossList))
+            np.save(output_dir + output_name + "_losses", losses)
+
+            #vallosses = np.load(output_dir + output_name + "_val_losses.npy")
+            #vallosses = np.concatenate((vallosses, trainer.vallossList))
+            #np.save(output_dir + output_name + "_val_losses", vallosses)
+
+        return model
+
 class DeepDiscInformer(CatInformer):
     """Placeholder for informer stage class"""
 
@@ -63,124 +173,6 @@ class DeepDiscInformer(CatInformer):
         pass
     
     
-    def train(self, train_head=True):
-
-        cfgfile = self.config.cfgfile
-        batch_size = self.config.batch_size
-        numclasses = self.config.numclasses
-        output_dir = self.config.output_dir
-        output_name = self.config.output_name
-        period = self.config.period
-        epoch = self.config.epoch
-        head_iters = self.config.head_iters
-        full_iters = self.config.full_iters
-                
-        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
-        cfg_loader = get_loader_config(output_dir, batch_size)
-        
-        e1 = epoch * 15
-        e2 = epoch * 10
-        e3 = epoch * 20
-        efinal = epoch * 35
-        
-        val_per = epoch
-        
-        mapper = RedshiftDictMapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
-        loader = d2data.build_detection_train_loader(
-            self.metadata, mapper=mapper, total_batch_size=batch_size
-        )
-
-        #eval_loader = d2data.build_detection_test_loader(
-        #    metadata, mapper=mapper, batch_size=batch_size
-        #)
-
-        
-        if train_head:
-            cfg.train.init_checkpoint = None
-            
-            model = return_lazy_model(cfg)
-            for param in model.parameters():
-                param.requires_grad = False
-            # Phase 1: Unfreeze only the roi_heads
-            for param in model.roi_heads.parameters():
-                param.requires_grad = True
-            # Phase 2: Unfreeze region proposal generator with reduced lr
-            for param in model.proposal_generator.parameters():
-                param.requires_grad = True
-            
-            
-            cfg.optimizer.params.model = model
-            cfg.optimizer.lr = 0.001
-            # optimizer = return_optimizer(cfg)
-            optimizer = solver.build_optimizer(cfg_loader, model)
-            cfg_loader.SOLVER.MAX_ITER = e1  # for DefaultTrainer
-
-            saveHook = return_savehook(output_name)
-            #lossHook = return_evallosshook(val_per, model, eval_loader)
-            schedulerHook = return_schedulerhook(optimizer)
-            #removing the eval loss eval hook for testing as it slows down the training
-            #hookList = [lossHook, schedulerHook, saveHook]
-            hookList = [schedulerHook, saveHook]
-
-            trainer = return_lazy_trainer(
-                model, loader, optimizer, cfg, cfg_loader, hookList
-            )
-
-            # how often the trainer prints something to screen, could be a config
-            trainer.set_period(period)
-
-            trainer.train(0, head_iters)
-            
-            if comm.is_main_process():
-                np.save(output_dir + output_name + "_losses", trainer.lossList)
-                #np.save(output_dir + output_name + "_val_losses", trainer.vallossList)
-            
-            self.model = model
-
-            return
-            
-        else:
-            cfg.train.init_checkpoint = os.path.join(output_dir, output_name + ".pth")
-            cfg_loader.SOLVER.BASE_LR = 0.0001
-            cfg_loader.SOLVER.STEPS = [e2,e3]  # do not decay learning rate for retraining
-            cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
-            
-            model = return_lazy_model(cfg)
-            cfg.optimizer.params.model = model
-            cfg.optimizer.lr = 0.0001
-            optimizer = solver.build_optimizer(cfg_loader, model)
-            cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
-
-
-            saveHook = return_savehook(output_name)
-            #lossHook = return_evallosshook(val_per, model, eval_loader)
-            schedulerHook = return_schedulerhook(optimizer)
-            #removing the eval loss eval hook for testing as it slows down the training
-            #hookList = [lossHook, schedulerHook, saveHook]
-            hookList = [schedulerHook, saveHook]
-            
-            trainer = return_lazy_trainer(
-                model, loader, optimizer, cfg, cfg_loader, hookList
-            )
-
-            trainer.set_period(period)
-            trainer.train(0, full_iters)
-
-            if comm.is_main_process():
-                losses = np.load(output_dir + output_name + "_losses.npy")
-                losses = np.concatenate((losses, trainer.lossList))
-                np.save(output_dir + output_name + "_losses", losses)
-
-                #vallosses = np.load(output_dir + output_name + "_val_losses.npy")
-                #vallosses = np.concatenate((vallosses, trainer.vallossList))
-                #np.save(output_dir + output_name + "_val_losses", vallosses)
-                
-            self.model = model
-                
-            return
             
     
     def run(self):
@@ -190,10 +182,11 @@ class DeepDiscInformer(CatInformer):
         #train_data = self.get_data("input")
         metadata = self.get_data("metadata")
 
-        print('caching data')
+        print('Caching data')
         # create an iterator here
         itr = self.input_iterator("input")
         for start_idx, _, chunk in itr:
+            print(f"Chunk index: {start_idx}")
             for idx, image in enumerate(chunk['images']):
                 this_img_metadata = metadata[start_idx + idx]
                 image_height = this_img_metadata["height"]
@@ -220,12 +213,14 @@ class DeepDiscInformer(CatInformer):
         print("Training head layers")
         train_head = True
         launch(
-            self.train,
+            train,
             num_gpus,
             num_machines=num_machines,
             machine_rank=machine_rank,
             dist_url=dist_url,
             args=(
+                self.config,
+                self.metadata,
                 train_head,
             ),
         )
@@ -233,12 +228,14 @@ class DeepDiscInformer(CatInformer):
         print("Training full model")
         train_head = False
         launch(
-            self.train,
+            train,
             self.config.num_gpus,
             num_machines=self.config.num_machines,
             machine_rank=self.config.machine_rank,
             dist_url=self.config.dist_url,
             args=(
+                self.config,
+                self.metadata,
                 train_head,
             ),
         )
