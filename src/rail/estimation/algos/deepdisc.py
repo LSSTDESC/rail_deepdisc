@@ -20,8 +20,9 @@ from deepdisc.training.trainers import (return_evallosshook,
                                         return_lazy_trainer, return_optimizer,
                                         return_savehook, return_schedulerhook)
 from detectron2.engine import launch
-from detectron2.config import LazyConfig, get_cfg
+from detectron2.config import LazyConfig, get_cfg, instantiate
 import detectron2.utils.comm as comm
+from detectron2.engine.defaults import create_ddp_model
 
 from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import TableHandle, JsonHandle, Hdf5Handle, QPHandle
@@ -62,7 +63,8 @@ def train(config, metadata, train_head=True):
     if train_head:
         cfg.train.init_checkpoint = None
 
-        model = return_lazy_model(cfg)
+        model = instantiate(cfg.model)
+        
         for param in model.parameters():
             param.requires_grad = False
         # Phase 1: Unfreeze only the roi_heads
@@ -71,6 +73,9 @@ def train(config, metadata, train_head=True):
         # Phase 2: Unfreeze region proposal generator with reduced lr
         for param in model.proposal_generator.parameters():
             param.requires_grad = True
+        
+        model.to(cfg.train.device)
+        model = create_ddp_model(model, **cfg.train.ddp)
 
 
         cfg.optimizer.params.model = model
@@ -107,7 +112,10 @@ def train(config, metadata, train_head=True):
         cfg_loader.SOLVER.STEPS = [e2,e3]  # do not decay learning rate for retraining
         cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
-        model = return_lazy_model(cfg)
+        model = instantiate(cfg.model)
+        model.to(cfg.train.device)
+        model = create_ddp_model(model, **cfg.train.ddp)
+        
         cfg.optimizer.params.model = model
         cfg.optimizer.lr = 0.0001
         optimizer = solver.build_optimizer(cfg_loader, model)
@@ -185,7 +193,6 @@ class DeepDiscInformer(CatInformer):
         # create an iterator here
         itr = self.input_iterator("input")
         for start_idx, _, chunk in itr:
-            print(f"Chunk index: {start_idx}")
             for idx, image in enumerate(chunk['images']):
                 this_img_metadata = metadata[start_idx + idx]
                 image_height = this_img_metadata["height"]
@@ -229,9 +236,9 @@ class DeepDiscInformer(CatInformer):
         launch(
             train,
             self.config.num_gpus,
-            num_machines=self.config.num_machines,
-            machine_rank=self.config.machine_rank,
-            dist_url=self.config.dist_url,
+            num_machines=num_machines,
+            machine_rank=machine_rank,
+            dist_url=dist_url,
             args=(
                 self.config.to_dict(),
                 self.metadata,
