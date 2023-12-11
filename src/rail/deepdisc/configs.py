@@ -18,9 +18,22 @@ def get_lazy_config(cfgfile, batch_size, numclasses):
     # cfg.model.backbone.bottom_up.in_chans = 6
     cfg.model.backbone.bottom_up.stem.in_channels = 6
 
-    
-    cfg.model.pixel_mean = [0.05381286, 0.04986344, 0.07526361, 0.10420945, 0.14229655, 0.21245764]
-    cfg.model.pixel_std = [2.9318833, 1.8443471, 2.581817, 3.5950038, 4.5809164, 7.302009]
+    cfg.model.pixel_mean = [
+        0.05381286,
+        0.04986344,
+        0.07526361,
+        0.10420945,
+        0.14229655,
+        0.21245764,
+    ]
+    cfg.model.pixel_std = [
+        2.9318833,
+        1.8443471,
+        2.581817,
+        3.5950038,
+        4.5809164,
+        7.302009,
+    ]
 
     cfg.model.roi_heads.num_components = 1
     cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
