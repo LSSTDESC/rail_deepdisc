@@ -29,7 +29,6 @@ from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
 
-
 def train(config, metadata, train_head=True):
     print('In train method')
     cfgfile = config['cfgfile']
@@ -205,7 +204,7 @@ class DeepDiscInformer(CatInformer):
                 
         num_gpus = self.config.num_gpus  
         num_machines = 1
-        machine_rank = 1
+        machine_rank = self.config.machine_rank
         
         port = 2**15 + 2**14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
         dist_url="tcp://127.0.0.1:{}".format(port)
