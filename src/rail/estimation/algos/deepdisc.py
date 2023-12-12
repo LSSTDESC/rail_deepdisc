@@ -195,26 +195,17 @@ class DeepDiscInformer(CatInformer):
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
-                this_image_metadata = file_path
+                this_image_metadata["filename"] = file_path
 
-        num_gpus = self.config.num_gpus
-        num_machines = self.config.num_machines
-        machine_rank = self.config.machine_rank
-
-        port = (
-            2**15
-            + 2**14
-            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-        )
-        dist_url = "tcp://127.0.0.1:{}".format(port)
+        dist_url = self._get_dist_url()
 
         print("Training head layers")
         train_head = True
         launch(
             train,
-            num_gpus,
-            num_machines=num_machines,
-            machine_rank=machine_rank,
+            num_gpus_per_machine=self.config.num_gpus,
+            num_machines=self.config.num_machines,
+            machine_rank=self.config.machine_rank,
             dist_url=dist_url,
             args=(
                 self.config.to_dict(),
@@ -227,9 +218,9 @@ class DeepDiscInformer(CatInformer):
         train_head = False
         launch(
             train,
-            self.config.num_gpus,
-            num_machines=num_machines,
-            machine_rank=machine_rank,
+            num_gpus_per_machine=self.config.num_gpus,
+            num_machines=self.config.num_machines,
+            machine_rank=self.config.machine_rank,
             dist_url=dist_url,
             args=(
                 self.config.to_dict(),
@@ -240,6 +231,15 @@ class DeepDiscInformer(CatInformer):
 
         self.model = dict(nnmodel=self.model)
         self.add_data("model", self.model)
+
+    def _get_dist_url(self):
+        port = (
+            2**15
+            + 2**14
+            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+        )
+        dist_url = "tcp://127.0.0.1:{}".format(port)
+        return dist_url
 
 
 #! Do we use still want this class???
@@ -358,7 +358,7 @@ class DeepDiscPDFEstimator(CatEstimator):
                 filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
-                image_metadata = file_path
+                image_metadata["filename"] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
