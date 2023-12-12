@@ -195,7 +195,7 @@ class DeepDiscInformer(CatInformer):
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
-                this_image_metadata = file_path
+                this_image_metadata['filename'] = file_path
 
         num_gpus = self.config.num_gpus
         num_machines = self.config.num_machines
