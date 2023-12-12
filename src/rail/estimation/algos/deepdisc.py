@@ -39,7 +39,7 @@ def train(config, all_metadata, train_head=True):
     numclasses = config["numclasses"]
     output_dir = config["output_dir"]
     output_name = config["output_name"]
-    period = config["period"]
+    epochs_per_print = config["epochs_per_print"]
     epochs = config["epochs"]
     head_iters = config["head_iters"]
     full_iters = config["full_iters"]
@@ -105,7 +105,7 @@ def train(config, all_metadata, train_head=True):
         )
 
         # how often the trainer prints something to screen, could be a config
-        trainer.set_period(period)
+        trainer.set_period(epochs_per_print)
 
         trainer.train(0, head_iters)
 
@@ -168,9 +168,8 @@ class DeepDiscInformer(CatInformer):
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
-        num_camera_filters=Param(int, 6, required=False, msfg="The number of camera filters for the dataset used (LSST has 6)."),
-        #epics/epoch
-        
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."), 
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
@@ -340,7 +339,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        num_camera_filters=Param(int, 6, required=False, msfg="The number of camera filters for the dataset used (LSST has 6)."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
     inputs = [("input", TableHandle), ("metadata", JsonHandle)]
