@@ -40,7 +40,7 @@ def train(config, all_metadata, train_head=True):
     output_dir = config["output_dir"]
     output_name = config["output_name"]
     period = config["period"]
-    epoch = config["epoch"]
+    epochs = config["epochs"]
     head_iters = config["head_iters"]
     full_iters = config["full_iters"]
     training_percent = config["training_percent"]
@@ -48,12 +48,12 @@ def train(config, all_metadata, train_head=True):
     cfg = get_lazy_config(cfgfile, batch_size, numclasses)
     cfg_loader = get_loader_config(output_dir, batch_size)
 
-    e1 = epoch * 15
-    e2 = epoch * 10
-    e3 = epoch * 20
-    efinal = epoch * 35
+    e1 = epochs * 15
+    e2 = epochs * 10
+    e3 = epochs * 20
+    efinal = epochs * 35
 
-    val_per = epoch
+    val_per = epochs
 
     # Create slices for the input data
     total_images = len(all_metadata)
@@ -168,6 +168,9 @@ class DeepDiscInformer(CatInformer):
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
+        num_camera_filters=Param(int, 6, required=False, msfg="The number of camera filters for the dataset used (LSST has 6)."),
+        #epics/epoch
+        
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
@@ -200,7 +203,7 @@ class DeepDiscInformer(CatInformer):
                 image_height = this_image_metadata["height"]
                 image_width = this_image_metadata["width"]
 
-                reformed_image = image.reshape(6, image_height, image_width).astype(
+                reformed_image = image.reshape(num_camera_filters, image_height, image_width).astype(
                     np.float32
                 )
 
@@ -337,6 +340,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+        num_camera_filters=Param(int, 6, required=False, msfg="The number of camera filters for the dataset used (LSST has 6)."),
     )
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
     inputs = [("input", TableHandle), ("metadata", JsonHandle)]
@@ -378,7 +382,7 @@ class DeepDiscPDFEstimator(CatEstimator):
                 image_height = image_metadata["height"]
                 image_width = image_metadata["width"]
 
-                reformed_image = image.reshape(6, image_height, image_width).astype(
+                reformed_image = image.reshape(num_camera_filters, image_height, image_width).astype(
                     np.float32
                 )
 
@@ -390,7 +394,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
         numclasses = self.config.numclasses
-        epoch = self.config.epoch
+        epochs = self.config.epochs
         output_dir = self.config.output_dir
         output_name = self.config.output_name
 
