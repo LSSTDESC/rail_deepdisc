@@ -14,26 +14,25 @@ def get_lazy_config(cfgfile, batch_size, numclasses):
 
     cfg.dataloader.train.total_batch_size = batch_size
     cfg.model.roi_heads.num_classes = numclasses
-    cfg.model.roi_heads.batch_size_per_image = 128
+    cfg.model.roi_heads.batch_size_per_image = 512
     # cfg.model.backbone.bottom_up.in_chans = 6
     cfg.model.backbone.bottom_up.stem.in_channels = 6
-    # cfg.model.pixel_mean = [0.00376413, 0.01292477, 0.04308919, 0.08965224, 0.13665777, 0.16544563]
-    # cfg.model.pixel_std =[0.07028706, 0.06942783, 0.2432113, 0.55617297, 0.8046262, 0.9044935]
+
     cfg.model.pixel_mean = [
-        0.00604957,
-        0.0097893,
-        0.02428164,
-        0.04782381,
-        0.06689043,
-        0.07634047,
+        0.05381286,
+        0.04986344,
+        0.07526361,
+        0.10420945,
+        0.14229655,
+        0.21245764,
     ]
     cfg.model.pixel_std = [
-        0.07637636,
-        0.07277052,
-        0.19012378,
-        0.42937884,
-        0.5813913,
-        0.65684605,
+        2.9318833,
+        1.8443471,
+        2.581817,
+        3.5950038,
+        4.5809164,
+        7.302009,
     ]
 
     cfg.model.roi_heads.num_components = 1
@@ -45,7 +44,7 @@ def get_lazy_config(cfgfile, batch_size, numclasses):
     return cfg
 
 
-def get_loader_config(output_dir, batch_size, epochs):
+def get_loader_config(output_dir, batch_size):
     cfg_loader = get_cfg()
     cfg_loader.SOLVER.IMS_PER_BATCH = batch_size
     cfg_loader.DATASETS.TRAIN = "astro_train"  # Register Metadata
@@ -70,7 +69,6 @@ def get_loader_config(output_dir, batch_size, epochs):
     cfg_loader.SOLVER.STEPS = []  # do not decay learning rate for retraining
     cfg_loader.SOLVER.LR_SCHEDULER_NAME = "WarmupMultiStepLR"
     cfg_loader.SOLVER.WARMUP_ITERS = 0
-    cfg_loader.SOLVER.MAX_ITER = epochs  # for DefaultTrainer
     cfg_loader.TEST.DETECTIONS_PER_IMAGE = 128
 
     return cfg_loader
