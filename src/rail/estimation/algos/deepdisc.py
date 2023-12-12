@@ -41,8 +41,7 @@ class DeepDiscInformer(CatInformer):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-    ) # TODO what was the verdict on including hdf5_groupname as an input param?
-    
+    )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
     #outputs = [('model', ModelHandle)]
 
@@ -155,8 +154,7 @@ class DeepDiscEstimator(CatEstimator):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-    ) # TODO (same hdf5_groupname question as above)
-    
+    )
     outputs = [("output", TableHandle)]
 
     def __init__(self, args, comm=None):
@@ -224,14 +222,10 @@ class DeepDiscPDFEstimator(CatEstimator):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-    ) # TODO (same hdf5_groupname question as above)
+    )
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
-    
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
     outputs =[('output', QPHandle), ('truth',TableHandle)]
-
-    #config_options.update()
-    # config_options.update(hdf5_groupname=SHARED_PARAMS)
 
     def __init__(self, args, comm=None):
         """Constructor:
