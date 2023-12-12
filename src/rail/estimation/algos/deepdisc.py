@@ -4,6 +4,7 @@ import detectron2.data as d2data
 import detectron2.solver as solver
 import numpy as np
 import qp
+from ceci.config import StageParameter as Param
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
@@ -38,7 +39,7 @@ class DeepDiscInformer(CatInformer):
         numclasses=Param(int, 1, required=False, msg="The number of classes to predict."),
         epochs=Param(int, 20, required=False, msg="Number of epochs to train for."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="Name of the saved model."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO what was the verdict on including hdf5_groupname as an input param?
     
@@ -151,8 +152,8 @@ class DeepDiscEstimator(CatEstimator):
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
-        output_dir=Param(str, "./", required=False, msg=""),
-        output_name=Param(str, "deepdisc_estimator", required=False, msg=""),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO (same hdf5_groupname question as above)
     
@@ -215,14 +216,13 @@ class DeepDiscPDFEstimator(CatEstimator):
 
     name = "DeepDiscPDFEstimator"
     config_options = CatInformer.config_options.copy()
-    config_options = CatInformer.config_options.copy()
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
-        output_dir=Param(str, "./", required=False, msg=""),
-        output_name=Param(str, "deepdisc_pdf_estimator", required=False, msg=""),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     ) # TODO (same hdf5_groupname question as above)
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
