@@ -68,7 +68,6 @@ def train(config, all_metadata, train_head=True):
         all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
     )
 
-    #! Grant to confirm these input variables
     eval_loader = d2data.build_detection_test_loader(
         all_metadata[eval_slice], mapper=mapper, batch_size=batch_size
     )
