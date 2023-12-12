@@ -58,7 +58,7 @@ def train(config, all_metadata, train_head=True):
     # Create slices for the input data
     total_images = len(all_metadata)
     train_slice = slice( int(np.floor(total_images * config[training_percent])) )
-    eval_slice = slice( int(np.floor(total_images * config[training_percent])) + 1, total_images )
+    eval_slice = slice( int(np.floor(total_images * config[training_percent])), total_images )
 
     mapper = RedshiftDictMapper(
         DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
@@ -70,7 +70,7 @@ def train(config, all_metadata, train_head=True):
 
     #! Grant to confirm these input variables
     eval_loader = d2data.build_detection_test_loader(
-        all_metadata[eval_slice], mapper=mapper, total_batch_size=batch_size
+        all_metadata[eval_slice], mapper=mapper, batch_size=batch_size
     )
 
     if train_head:
@@ -168,7 +168,7 @@ class DeepDiscInformer(CatInformer):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        training_percent=Param(float, 0.8, required=False, msg="The percentage of the input data to use for training. The remaining percent is used for evaluation."),
+        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
