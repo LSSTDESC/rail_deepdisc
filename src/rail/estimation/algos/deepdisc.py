@@ -132,14 +132,12 @@ def train(config, all_metadata, train_head=True):
         cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
         saveHook = return_savehook(output_name)
-        # lossHook = return_evallosshook(val_per, model, eval_loader)
+        lossHook = return_evallosshook(val_per, model, eval_loader)
         schedulerHook = return_schedulerhook(optimizer)
-        # removing the eval loss eval hook for testing as it slows down the training
-        # hookList = [lossHook, schedulerHook, saveHook]
-        hookList = [schedulerHook, saveHook]
+        hookList = [lossHook, schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
-            model, loader, optimizer, cfg, cfg_loader, hookList
+            model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
         trainer.set_period(period)
