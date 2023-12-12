@@ -7,6 +7,7 @@ import detectron2.solver as solver
 import detectron2.utils.comm as comm
 import numpy as np
 import qp
+from ceci.config import StageParameter as Param
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
@@ -152,11 +153,16 @@ class DeepDiscInformer(CatInformer):
 
     name = "DeepDiscInformer"
     config_options = CatInformer.config_options.copy()
-    # Add defaults and a help message
-    # e.g. cfgfile = Param(str, None, required=True,
-    #        msg="The primary configuration file for the deepdisc models."),
-
-    inputs = [("input", TableHandle), ("metadata", JsonHandle)]
+    config_options.update(
+        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
+        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+        numclasses=Param(int, 1, required=False, msg="The number of classes to predict."),
+        epochs=Param(int, 20, required=False, msg="Number of epochs to train for."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+    )
+    inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
@@ -248,8 +254,15 @@ class DeepDiscEstimator(CatEstimator):
 
     name = "DeepDiscEstimator"
     config_options = CatEstimator.config_options.copy()
-    config_options.update()
-
+    config_options.update(
+        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
+        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+        numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
+        epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+    )
     outputs = [("output", TableHandle)]
 
     def __init__(self, args, comm=None):
@@ -309,11 +322,18 @@ class DeepDiscPDFEstimator(CatEstimator):
 
     name = "DeepDiscPDFEstimator"
     config_options = CatInformer.config_options.copy()
+    config_options.update(
+        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
+        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+        numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
+        epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+    )
+    # config_options.update(hdf5_groupname=SHARED_PARAMS)
     inputs = [("input", TableHandle), ("metadata", JsonHandle)]
     outputs = [("output", QPHandle), ("truth", TableHandle)]
-
-    # config_options.update()
-    # config_options.update(hdf5_groupname=SHARED_PARAMS)
 
     def __init__(self, args, comm=None):
         """Constructor:
