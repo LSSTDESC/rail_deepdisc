@@ -33,7 +33,7 @@ from rail.estimation.estimator import CatEstimator, CatInformer
 from rail.deepdisc.configs import *
 
 
-def train(config, training_metadata, train_head=True):
+def train(config, all_metadata, train_head=True):
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
     numclasses = config["numclasses"]
@@ -43,6 +43,7 @@ def train(config, training_metadata, train_head=True):
     epoch = config["epoch"]
     head_iters = config["head_iters"]
     full_iters = config["full_iters"]
+    training_percent = config["training_percent"]
 
     cfg = get_lazy_config(cfgfile, batch_size, numclasses)
     cfg_loader = get_loader_config(output_dir, batch_size)
@@ -54,12 +55,22 @@ def train(config, training_metadata, train_head=True):
 
     val_per = epoch
 
+    # Create slices for the input data
+    total_images = len(all_metadata)
+    train_slice = slice( int(np.floor(total_images * config[training_percent])) )
+    eval_slice = slice( int(np.floor(total_images * config[training_percent])) + 1, total_images )
+
     mapper = RedshiftDictMapper(
         DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
     ).map_data
 
-    loader = d2data.build_detection_train_loader(
-        training_metadata, mapper=mapper, total_batch_size=batch_size
+    training_loader = d2data.build_detection_train_loader(
+        all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
+    )
+
+    #! Grant to confirm these input variables
+    eval_loader = d2data.build_detection_test_loader(
+        all_metadata[eval_slice], mapper=mapper, total_batch_size=batch_size
     )
 
     if train_head:
@@ -86,14 +97,12 @@ def train(config, training_metadata, train_head=True):
         cfg_loader.SOLVER.MAX_ITER = e1  # for DefaultTrainer
 
         saveHook = return_savehook(output_name)
-        # lossHook = return_evallosshook(val_per, model, eval_loader)
+        lossHook = return_evallosshook(val_per, model, eval_loader)
         schedulerHook = return_schedulerhook(optimizer)
-        # removing the eval loss eval hook for testing as it slows down the training
-        # hookList = [lossHook, schedulerHook, saveHook]
-        hookList = [schedulerHook, saveHook]
+        hookList = [lossHook, schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
-            model, loader, optimizer, cfg, cfg_loader, hookList
+            model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
         # how often the trainer prints something to screen, could be a config
@@ -161,17 +170,18 @@ class DeepDiscInformer(CatInformer):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+        training_percent=Param(float, 0.8, required=False, msg="The percentage of the input data to use for training. The remaining percent is used for evaluation."),
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
 
-    def inform(self, training_data, training_metadata):
+    def inform(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
-            self.set_data("input", training_data)
-            self.set_data("metadata", training_metadata)
+            self.set_data("input", input_data)
+            self.set_data("metadata", input_metadata)
             self.run()
             self.finalize()
         return self.get_handle("model")
