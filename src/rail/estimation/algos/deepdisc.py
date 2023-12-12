@@ -32,7 +32,7 @@ from rail.estimation.estimator import CatEstimator, CatInformer
 from rail.deepdisc.configs import *
 
 
-def train(config, metadata, train_head=True):
+def train(config, training_metadata, train_head=True):
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
     numclasses = config["numclasses"]
@@ -58,7 +58,7 @@ def train(config, metadata, train_head=True):
     ).map_data
 
     loader = d2data.build_detection_train_loader(
-        metadata, mapper=mapper, total_batch_size=batch_size
+        training_metadata, mapper=mapper, total_batch_size=batch_size
     )
 
     if train_head:
@@ -156,21 +156,16 @@ class DeepDiscInformer(CatInformer):
     # e.g. cfgfile = Param(str, None, required=True,
     #        msg="The primary configuration file for the deepdisc models."),
 
-    # port = 2**15 + 2**14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-    # dist_url="tcp://127.0.0.1:{}".format(port)
-    # config_options.update(dist_url=dist_url, machine_rank=0, num_machines=1)
-
     inputs = [("input", TableHandle), ("metadata", JsonHandle)]
-    # outputs = [('model', ModelHandle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
 
-    def inform(self, training_data, metadata):
+    def inform(self, training_data, training_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
             self.set_data("input", training_data)
-            self.set_data("metadata", metadata)
+            self.set_data("metadata", training_metadata)
             self.run()
             self.finalize()
         return self.get_handle("model")
@@ -182,30 +177,25 @@ class DeepDiscInformer(CatInformer):
         """
         Train a inception NN on a fraction of the training data
         """
-        # train_data = self.get_data("input")
-        metadata = self.get_data("metadata")
+        self.metadata = self.get_data("metadata")
 
         print("Caching data")
-        # create an iterator here
-        itr = self.input_iterator("input")
-        for start_idx, _, chunk in itr:
-            for idx, image in enumerate(chunk["images"]):
-                this_img_metadata = metadata[start_idx + idx]
-                image_height = this_img_metadata["height"]
-                image_width = this_img_metadata["width"]
+        flattened_image_iterator = self.input_iterator("input")
+        for start_idx, _, images in flattened_image_iterator:
+            for image_idx, image in enumerate(images["images"]):
+                this_image_metadata = self.metadata[start_idx + image_idx]
+                image_height = this_image_metadata["height"]
+                image_width = this_image_metadata["width"]
 
                 reformed_image = image.reshape(6, image_height, image_width).astype(
                     np.float32
                 )
 
-                filename = f"image_{start_idx + idx}.npy"
+                filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
 
-                # we want the dictionary associated with this particular image.
-                metadata[start_idx + idx]["filename"] = file_path
-
-        self.metadata = metadata
+                this_image_metadata = file_path
 
         num_gpus = self.config.num_gpus
         num_machines = self.config.num_machines
@@ -248,12 +238,11 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        #! Question for Grant, what is it that we actually want to save here?
         self.model = dict(nnmodel=self.model)
         self.add_data("model", self.model)
 
 
-#! I don't think we actually use this class???
+#! Do we use still want this class???
 class DeepDiscEstimator(CatEstimator):
     """DeepDISC estimator"""
 
@@ -333,11 +322,11 @@ class DeepDiscPDFEstimator(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
         # self.config.hdf5_groupname = None
 
-    def estimate(self, input_data, metadata):
+    def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
             self.set_data("input", input_data)
-            self.set_data("metadata", metadata)
+            self.set_data("metadata", input_metadata)
             self.run()
             self.finalize()
         return self.get_handle("output")
@@ -352,29 +341,24 @@ class DeepDiscPDFEstimator(CatEstimator):
         calculate and return PDFs for each galaxy using the trained flow
         """
 
-        # self.open_model(**self.config)
-
-        # test_data = self.get_data("input")
         metadata = self.get_data("metadata")
 
         print("caching data")
-        itr = self.input_iterator("input")
-        for start_idx, _, chunk in itr:
-            for idx, image in enumerate(chunk["images"]):
-                this_img_metadata = metadata[start_idx + idx]
-                image_height = this_img_metadata["height"]
-                image_width = this_img_metadata["width"]
+        flattened_image_iterator = self.input_iterator("input")
+        for start_idx, _, images in flattened_image_iterator:
+            for image_idx, image in enumerate(images["images"]):
+                image_metadata = metadata[start_idx + image_idx]
+                image_height = image_metadata["height"]
+                image_width = image_metadata["width"]
 
                 reformed_image = image.reshape(6, image_height, image_width).astype(
                     np.float32
                 )
 
-                filename = f"image_{start_idx + idx}.npy"
+                filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
-
-                # we want the dictionary associated with this particular image.
-                metadata[start_idx + idx]["filename"] = file_path
+                image_metadata = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
