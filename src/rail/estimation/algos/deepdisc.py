@@ -104,7 +104,6 @@ def train(config, all_metadata, train_head=True):
             model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
-        # how often the trainer prints something to screen, could be a config
         trainer.set_period(epochs_per_print)
 
         trainer.train(0, head_iters)
@@ -169,7 +168,9 @@ class DeepDiscInformer(CatInformer):
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."), 
+        epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."),
+        head_iters=Param(int, 0, required=False, msg="How many iterations in a head run."),
+        full_iters=Param(int, 0, required=False, msg="How many iterations in a full run."),
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
