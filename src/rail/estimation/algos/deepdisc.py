@@ -171,6 +171,9 @@ class DeepDiscInformer(CatInformer):
         epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."),
         head_iters=Param(int, 0, required=False, msg="How many iterations in a head run."),
         full_iters=Param(int, 0, required=False, msg="How many iterations in a full run."),
+        num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
+        num_machines=Param(int, 1, required=False, msg="The total number of machines."),
+        machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
     )
     inputs = [('input', TableHandle), ('metadata', JsonHandle)]
 
