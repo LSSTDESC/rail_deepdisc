@@ -1,22 +1,35 @@
 import os
 
 from deepdisc.model.models import (RedshiftPDFROIHeads,
+                                   RedshiftPDFCasROIHeads,
                                    RedshiftPointCasROIHeads,
                                    RedshiftPointROIHeads)
 from detectron2.config import LazyConfig, get_cfg
 
 
-def get_lazy_config(cfgfile, batch_size, numclasses):
+def get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet):
     cfg = LazyConfig.load(cfgfile)
     bs = 1
     cfg.model.proposal_generator.anchor_generator.sizes = [[8], [16], [32], [64], [128]]
     cfg.model.proposal_generator.batch_size_per_image = 512
 
     cfg.dataloader.train.total_batch_size = batch_size
-    cfg.model.roi_heads.num_classes = numclasses
+    cfg.model.roi_heads.num_classes = num_classes
     cfg.model.roi_heads.batch_size_per_image = 512
-    # cfg.model.backbone.bottom_up.in_chans = 6
-    cfg.model.backbone.bottom_up.stem.in_channels = 6
+
+    if resnet:
+        cfg.model.backbone.bottom_up.stem.in_channels = 6
+        cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
+
+
+    else:
+        cfg.model.backbone.bottom_up.in_chans = 6
+        cfg.model.roi_heads._target_ = RedshiftPDFCasROIHeads
+        for box_predictor in cfg.model.roi_heads.box_predictors:
+            box_predictor.test_topk_per_image = 1000
+            box_predictor.test_score_thresh = 0.5
+
+
 
     cfg.model.pixel_mean = [
         0.05381286,
@@ -35,10 +48,7 @@ def get_lazy_config(cfgfile, batch_size, numclasses):
         7.302009,
     ]
 
-    cfg.model.roi_heads.num_components = 1
-    cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
-    # cfg.model.roi_heads._target_ = RedshiftPointROIHeads
-    cfg.model.roi_heads.box_predictor.test_score_thresh = 0.5
+    cfg.model.roi_heads.num_components = num_components
     cfg.model.proposal_generator.nms_thresh = 0.3
 
     return cfg

@@ -35,15 +35,17 @@ from rail.deepdisc.configs import *
 def train(config, training_metadata, train_head=True):
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
-    numclasses = config["numclasses"]
+    num_classes = config["num_classes"]
     output_dir = config["output_dir"]
     output_name = config["output_name"]
     period = config["period"]
     epoch = config["epoch"]
     head_iters = config["head_iters"]
     full_iters = config["full_iters"]
-
-    cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+    num_components = config['num_components']
+    resnet = config['resnet']
+    
+    cfg = get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet)
     cfg_loader = get_loader_config(output_dir, batch_size)
 
     e1 = epoch * 15
@@ -62,7 +64,9 @@ def train(config, training_metadata, train_head=True):
     )
 
     if train_head:
-        cfg.train.init_checkpoint = None
+        #cfg.train.init_checkpoint = None
+        if not resnet:
+            cfg.train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_246a82.pkl"
 
         model = instantiate(cfg.model)
 
@@ -206,8 +210,10 @@ class DeepDiscInformer(CatInformer):
             + 2**14
             + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
         )
-        dist_url = "tcp://127.0.0.1:{}".format(port)
-
+        #dist_url = "tcp://127.0.0.1:{}".format(port)
+        dist_url='auto'
+        
+        '''
         print("Training head layers")
         train_head = True
         launch(
@@ -222,12 +228,13 @@ class DeepDiscInformer(CatInformer):
                 train_head,
             ),
         )
+        '''
 
         print("Training full model")
         train_head = False
         launch(
             train,
-            self.config.num_gpus,
+            num_gpus,
             num_machines=num_machines,
             machine_rank=machine_rank,
             dist_url=dist_url,
@@ -269,12 +276,14 @@ class DeepDiscEstimator(CatEstimator):
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
-        numclasses = self.config.numclasses
+        num_classes = self.config.num_classes
         epochs = self.config.epochs
         output_dir = self.config.output_dir
         output_name = self.config.output_name
+        num_components = self.config.num_components
+        resnet = self.config.resnet
 
-        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+        cfg = get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet)
         cfg_loader = get_loader_config(output_dir, batch_size)
 
         cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
@@ -291,9 +300,9 @@ class DeepDiscEstimator(CatEstimator):
         dataset_dicts["test"] = dds
 
         print("Matching objects")
-        true_classes, pred_classes = get_matched_object_classes_new(
-            dataset_dicts["test"], predictor
-        )
+        #true_classes, pred_classes = get_matched_object_classes_new(
+        #    dataset_dicts["test"], predictor
+        #)
         self.true_zs, self.preds = get_matched_z_points_new(
             dataset_dicts["test"], predictor
         )
@@ -358,16 +367,18 @@ class DeepDiscPDFEstimator(CatEstimator):
                 filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
                 np.save(file_path, reformed_image)
-                image_metadata = file_path
+                image_metadata['filename'] = file_path
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
-        numclasses = self.config.numclasses
+        num_classes = self.config.num_classes
         epoch = self.config.epoch
         output_dir = self.config.output_dir
         output_name = self.config.output_name
+        num_components = self.config.num_components
+        resnet = self.config.resnet
 
-        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
+        cfg = get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet)
         cfg_loader = get_loader_config(output_dir, batch_size)
         cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
 
