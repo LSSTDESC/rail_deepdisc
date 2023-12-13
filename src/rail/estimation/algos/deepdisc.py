@@ -203,9 +203,9 @@ class DeepDiscInformer(CatInformer):
                 image_height = this_image_metadata["height"]
                 image_width = this_image_metadata["width"]
 
-                reformed_image = image.reshape(num_camera_filters, image_height, image_width).astype(
-                    np.float32
-                )
+                reformed_image = image.reshape(
+                    self.config.num_camera_filters, image_height, image_width
+                ).astype(np.float32)
 
                 filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
@@ -382,9 +382,9 @@ class DeepDiscPDFEstimator(CatEstimator):
                 image_height = image_metadata["height"]
                 image_width = image_metadata["width"]
 
-                reformed_image = image.reshape(num_camera_filters, image_height, image_width).astype(
-                    np.float32
-                )
+                reformed_image = image.reshape(
+                    self.config.num_camera_filters, image_height, image_width
+                ).astype(np.float32)
 
                 filename = f"image_{start_idx + image_idx}.npy"
                 file_path = os.path.join(self.temp_dir, filename)
