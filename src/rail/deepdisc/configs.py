@@ -9,14 +9,16 @@ from detectron2.config import LazyConfig, get_cfg
 
 def get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet):
     cfg = LazyConfig.load(cfgfile)
-    bs = 1
+    bs = batch_size
     cfg.model.proposal_generator.anchor_generator.sizes = [[8], [16], [32], [64], [128]]
-    cfg.model.proposal_generator.batch_size_per_image = 512
+    #cfg.model.proposal_generator.batch_size_per_image = 512
 
     cfg.dataloader.train.total_batch_size = batch_size
     cfg.model.roi_heads.num_classes = num_classes
     cfg.model.roi_heads.batch_size_per_image = 512
-
+    
+    cfg.model.roi_heads.num_components = num_components
+    
     if resnet:
         cfg.model.backbone.bottom_up.stem.in_channels = 6
         cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
@@ -26,8 +28,9 @@ def get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet):
         cfg.model.backbone.bottom_up.in_chans = 6
         cfg.model.roi_heads._target_ = RedshiftPDFCasROIHeads
         for box_predictor in cfg.model.roi_heads.box_predictors:
-            box_predictor.test_topk_per_image = 1000
+            box_predictor.test_topk_per_image = 2000
             box_predictor.test_score_thresh = 0.5
+            box_predictor.test_nms_thresh = 0.3
 
 
 
@@ -48,8 +51,7 @@ def get_lazy_config(cfgfile, batch_size, num_classes, num_components, resnet):
         7.302009,
     ]
 
-    cfg.model.roi_heads.num_components = num_components
-    cfg.model.proposal_generator.nms_thresh = 0.3
+    #cfg.model.proposal_generator.nms_thresh = 0.3
 
     return cfg
 
@@ -79,6 +81,6 @@ def get_loader_config(output_dir, batch_size):
     cfg_loader.SOLVER.STEPS = []  # do not decay learning rate for retraining
     cfg_loader.SOLVER.LR_SCHEDULER_NAME = "WarmupMultiStepLR"
     cfg_loader.SOLVER.WARMUP_ITERS = 0
-    cfg_loader.TEST.DETECTIONS_PER_IMAGE = 128
+    cfg_loader.TEST.DETECTIONS_PER_IMAGE = 2000
 
     return cfg_loader
