@@ -138,7 +138,7 @@ def train(config, all_metadata, train_head=True):
             model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
-        trainer.set_period(period)
+        trainer.set_period(epochs_per_print)
         trainer.train(0, full_iters)
 
         if comm.is_main_process():
