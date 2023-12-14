@@ -170,7 +170,7 @@ class DeepDiscInformer(CatInformer):
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."),
         head_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
-        full_iters=Param(int, 0, required=False, msg="How many iterations in a full run."),
+        full_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
         num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
