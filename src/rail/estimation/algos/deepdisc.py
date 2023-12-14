@@ -248,7 +248,17 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        self.model = dict(nnmodel=self.model)
+
+        import detectron2.checkpoint as checkpointer
+
+        self.checkpointer = checkpointer.DetectionCheckpointer(
+            self.model,
+            self.config.output_dir,
+        )
+        # load weights
+        weights = self.checkpointer.load(os.path.join(self.config.output_dir, self.config.output_name + ".pth"))
+
+        self.model = dict(model_weights=weights)
         self.add_data("model", self.model)
 
     def _get_dist_url(self):
@@ -368,7 +378,7 @@ class DeepDiscPDFEstimator(CatEstimator):
     def open_model(self, **kwargs):
         CatEstimator.open_model(self, **kwargs)
         if self.model is not None:
-            self.nnmodel = self.model["nnmodel"]
+            self.nnmodel = self.model["model_weights"]
 
     def run(self):
         """
