@@ -6,40 +6,11 @@ from deepdisc.model.models import (RedshiftPDFROIHeads,
 from detectron2.config import LazyConfig, get_cfg
 
 
-def get_lazy_config(cfgfile, batch_size, numclasses):
+def get_lazy_config(cfgfile, train_head):
     cfg = LazyConfig.load(cfgfile)
-    bs = 1
-    cfg.model.proposal_generator.anchor_generator.sizes = [[8], [16], [32], [64], [128]]
-    cfg.model.proposal_generator.batch_size_per_image = 512
+    
+    
 
-    cfg.dataloader.train.total_batch_size = batch_size
-    cfg.model.roi_heads.num_classes = numclasses
-    cfg.model.roi_heads.batch_size_per_image = 512
-    # cfg.model.backbone.bottom_up.in_chans = 6
-    cfg.model.backbone.bottom_up.stem.in_channels = 6
-
-    cfg.model.pixel_mean = [
-        0.05381286,
-        0.04986344,
-        0.07526361,
-        0.10420945,
-        0.14229655,
-        0.21245764,
-    ]
-    cfg.model.pixel_std = [
-        2.9318833,
-        1.8443471,
-        2.581817,
-        3.5950038,
-        4.5809164,
-        7.302009,
-    ]
-
-    cfg.model.roi_heads.num_components = 1
-    cfg.model.roi_heads._target_ = RedshiftPDFROIHeads
-    # cfg.model.roi_heads._target_ = RedshiftPointROIHeads
-    cfg.model.roi_heads.box_predictor.test_score_thresh = 0.5
-    cfg.model.proposal_generator.nms_thresh = 0.3
 
     return cfg
 
