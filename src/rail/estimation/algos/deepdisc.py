@@ -39,7 +39,7 @@ def train(config, all_metadata, train_head=True):
     numclasses = config["numclasses"]
     output_dir = config["output_dir"]
     output_name = config["output_name"]
-    epochs_per_print = config["epochs_per_print"]
+    print_frequency = config["print_frequency"]
     epochs = config["epochs"]
     head_iters = config["head_iters"]
     full_iters = config["full_iters"]
@@ -105,7 +105,7 @@ def train(config, all_metadata, train_head=True):
             model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
-        trainer.set_period(epochs_per_print)
+        trainer.set_period(print_frequency)
 
         trainer.train(0, head_iters)
 
@@ -139,7 +139,7 @@ def train(config, all_metadata, train_head=True):
             model, training_loader, optimizer, cfg, cfg_loader, hookList
         )
 
-        trainer.set_period(epochs_per_print)
+        trainer.set_period(print_frequency)
         trainer.train(0, full_iters)
 
         if comm.is_main_process():
@@ -169,7 +169,7 @@ class DeepDiscInformer(CatInformer):
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        epochs_per_print=Param(int, 5, required=False, msg="How often to print in-progress output."),
+        print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         head_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         full_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
         num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
