@@ -53,8 +53,9 @@ def train(config, all_metadata, train_head=True):
 
     # Create slices for the input data
     total_images = len(all_metadata)
-    train_slice = slice( int(np.floor(total_images * training_percent)) )
-    eval_slice = slice( int(np.floor(total_images * training_percent)), total_images )
+    split_index = int(np.floor(total_images * training_percent))
+    train_slice = slice(split_index)
+    eval_slice = slice(split_index, total_images)
 
     mapper = RedshiftDictMapper(
         DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
