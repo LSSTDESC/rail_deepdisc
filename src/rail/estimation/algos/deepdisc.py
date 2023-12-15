@@ -30,15 +30,13 @@ from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, JsonHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
-from rail.deepdisc.configs import *
-
 
 def train(config, all_metadata, train_head=True):
     
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
     output_dir = config["output_dir"]
-    output_name = config["output_name"]
+    run_name = config["run_name"]
     print_frequency = config["print_frequency"]
     epoch = config["epoch"]
     head_epochs = config["head_epochs"]
@@ -80,7 +78,7 @@ def train(config, all_metadata, train_head=True):
     optimizer = solver.build_optimizer(cfg, model)
 
 
-    saveHook = return_savehook(output_name)
+    saveHook = return_savehook(run_name)
     lossHook = return_evallosshook(val_per, model, eval_loader)
     schedulerHook = return_schedulerhook(optimizer)
     #hookList = [lossHook, schedulerHook, saveHook]
@@ -99,13 +97,13 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(output_dir + output_name + "_losses", trainer.lossList)
-            # np.save(output_dir + output_name + "_val_losses", trainer.vallossList)
+            np.save(output_dir + run_name + "_losses", trainer.lossList)
+            # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
         return model
 
     else:
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name + ".pth")
+        cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
         cfg.SOLVER.BASE_LR = 0.0001
         cfg.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
@@ -120,13 +118,13 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, efinal)
 
         if comm.is_main_process():
-            losses = np.load(output_dir + output_name + "_losses.npy")
+            losses = np.load(output_dir + run_name + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
-            np.save(output_dir + output_name + "_losses", losses)
+            np.save(output_dir + run_name + "_losses", losses)
 
-            # vallosses = np.load(output_dir + output_name + "_val_losses.npy")
+            # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
             # vallosses = np.concatenate((vallosses, trainer.vallossList))
-            # np.save(output_dir + output_name + "_val_losses", vallosses)
+            # np.save(output_dir + run_name + "_val_losses", vallosses)
 
         return model
 
@@ -141,7 +139,7 @@ class DeepDiscInformer(CatInformer):
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
@@ -250,7 +248,7 @@ class DeepDiscEstimator(CatEstimator):
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     )
     outputs = [("output", TableHandle)]
@@ -275,12 +273,12 @@ class DeepDiscEstimator(CatEstimator):
         numclasses = self.config.numclasses
         epochs = self.config.epochs
         output_dir = self.config.output_dir
-        output_name = self.config.output_name
+        run_name = self.config.run_name
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size)
 
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
+        cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
 
         # Process test images same way as training set
         predictor = return_predictor_transformer(cfg, cfg_loader)
@@ -316,7 +314,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_estimator", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
@@ -372,13 +370,13 @@ class DeepDiscPDFEstimator(CatEstimator):
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
         output_dir = self.config.output_dir
-        output_name = self.config.output_name
+        run_name = self.config.run_name
 
         cfg = LazyConfig.load(cfgfile)
         cfg.OUTPUT_DIR = output_dir        
         
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
-
+        #cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
+        cfg.MODEL.WEIGHTS = os.path.join(output_dir, run_name) + ".pth"
         self.predictor = return_predictor_transformer(cfg)
 
         # Process test images same way as training set
