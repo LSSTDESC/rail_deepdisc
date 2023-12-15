@@ -41,6 +41,7 @@ def train(config, all_metadata, train_head=True):
     epoch = config["epoch"]
     head_epochs = config["head_epochs"]
     full_epochs = config["full_epochs"]
+
     training_percent = config["training_percent"]
 
 
@@ -117,6 +118,7 @@ def train(config, all_metadata, train_head=True):
 
         trainer.set_period(print_frequency)
         trainer.train(0, efinal)
+
 
         if comm.is_main_process():
             losses = np.load(output_dir + run_name + "_losses.npy")
