@@ -1,7 +1,7 @@
 import os
 import sys
 import tempfile
-
+from fvcore.common.checkpoint import Checkpointer
 import detectron2.data as d2data
 import detectron2.solver as solver
 import detectron2.utils.comm as comm
@@ -250,14 +250,11 @@ class DeepDiscInformer(CatInformer):
         )
 
 
-        import detectron2.checkpoint as checkpointer
-
-        self.checkpointer = checkpointer.DetectionCheckpointer(
-            self.model,
-            self.config.output_dir,
-        )
-        # load weights
-        weights = self.checkpointer.load(os.path.join(self.config.output_dir, self.config.output_name + ".pth"))
+        cfg = get_lazy_config(self.config.cfgfile, self.config.batch_size, self.config.numclasses)
+        model = instantiate(cfg.model)
+        file_path = os.path.join("./", "deepdisc_informer" + ".pth")
+        fv_cp = Checkpointer(model, "./")
+        weights = fv_cp._load_file(file_path)
 
         self.model = dict(model_weights=weights)
         self.add_data("model", self.model)
