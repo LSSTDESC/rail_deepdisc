@@ -23,37 +23,33 @@ from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
                                         return_lazy_trainer, return_optimizer,
                                         return_savehook, return_schedulerhook)
-from detectron2.config import LazyConfig, get_cfg, instantiate
+from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, JsonHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
-from rail.deepdisc.configs import *
-
 
 def train(config, all_metadata, train_head=True):
+    
     cfgfile = config["cfgfile"]
     batch_size = config["batch_size"]
-    numclasses = config["numclasses"]
     output_dir = config["output_dir"]
-    output_name = config["output_name"]
+    run_name = config["run_name"]
     print_frequency = config["print_frequency"]
-    epochs = config["epochs"]
-    head_iters = config["head_iters"]
-    full_iters = config["full_iters"]
+    epoch = config["epoch"]
+    head_epochs = config["head_epochs"]
+    full_epochs = config["full_epochs"]
     training_percent = config["training_percent"]
 
-    cfg = get_lazy_config(cfgfile, batch_size, numclasses)
-    cfg_loader = get_loader_config(output_dir, batch_size)
 
-    e1 = epochs * 15
-    e2 = epochs * 10
-    e3 = epochs * 20
-    efinal = epochs * 35
+    e1 = epoch * head_epochs
+    e2 = epoch * 10
+    e3 = epoch * 20
+    efinal = epoch * full_epochs
 
-    val_per = epochs
+    val_per = epoch
 
     # Create slices for the input data
     total_images = len(all_metadata)
@@ -72,86 +68,66 @@ def train(config, all_metadata, train_head=True):
     eval_loader = d2data.build_detection_test_loader(
         all_metadata[eval_slice], mapper=mapper, batch_size=batch_size
     )
+    
+    
+    cfg = LazyConfig.load(cfgfile)
+    cfg.OUTPUT_DIR = output_dir
+
+    
+    model = return_lazy_model(cfg, train_head)
+    cfg.optimizer.params.model = model
+    optimizer = solver.build_optimizer(cfg, model)
+
+
+    saveHook = return_savehook(run_name)
+    lossHook = return_evallosshook(val_per, model, eval_loader)
+    schedulerHook = return_schedulerhook(optimizer)
+    #hookList = [lossHook, schedulerHook, saveHook]
+    hookList = [schedulerHook, saveHook]
 
     if train_head:
-        cfg.train.init_checkpoint = None
 
-        model = instantiate(cfg.model)
-
-        for param in model.parameters():
-            param.requires_grad = False
-        # Phase 1: Unfreeze only the roi_heads
-        for param in model.roi_heads.parameters():
-            param.requires_grad = True
-        # Phase 2: Unfreeze region proposal generator with reduced lr
-        for param in model.proposal_generator.parameters():
-            param.requires_grad = True
-
-        model.to(cfg.train.device)
-        model = create_ddp_model(model, **cfg.train.ddp)
-
-        cfg.optimizer.params.model = model
-        cfg.optimizer.lr = 0.001
-        # optimizer = return_optimizer(cfg)
-        optimizer = solver.build_optimizer(cfg_loader, model)
-        cfg_loader.SOLVER.MAX_ITER = e1  # for DefaultTrainer
-
-        saveHook = return_savehook(output_name)
-        lossHook = return_evallosshook(val_per, model, eval_loader)
-        schedulerHook = return_schedulerhook(optimizer)
-        hookList = [lossHook, schedulerHook, saveHook]
+        cfg.SOLVER.MAX_ITER = e1  # for DefaultTrainer
 
         trainer = return_lazy_trainer(
-            model, training_loader, optimizer, cfg, cfg_loader, hookList
+            model, training_loader, optimizer, cfg, hookList
         )
 
         trainer.set_period(print_frequency)
 
-        trainer.train(0, head_iters)
+        trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(output_dir + output_name + "_losses", trainer.lossList)
-            # np.save(output_dir + output_name + "_val_losses", trainer.vallossList)
+            np.save(output_dir + run_name + "_losses", trainer.lossList)
+            # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
-        return model
+
 
     else:
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name + ".pth")
-        cfg_loader.SOLVER.BASE_LR = 0.0001
-        cfg_loader.SOLVER.STEPS = [e2, e3]  # do not decay learning rate for retraining
-        cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
+        cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
+        cfg.SOLVER.BASE_LR = 0.0001
+        cfg.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
-        model = instantiate(cfg.model)
-        model.to(cfg.train.device)
-        model = create_ddp_model(model, **cfg.train.ddp)
-
-        cfg.optimizer.params.model = model
         cfg.optimizer.lr = 0.0001
-        optimizer = solver.build_optimizer(cfg_loader, model)
-        cfg_loader.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
-        saveHook = return_savehook(output_name)
-        lossHook = return_evallosshook(val_per, model, eval_loader)
-        schedulerHook = return_schedulerhook(optimizer)
-        hookList = [lossHook, schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
-            model, training_loader, optimizer, cfg, cfg_loader, hookList
+            model, training_loader, optimizer, cfg, hookList
         )
 
         trainer.set_period(print_frequency)
-        trainer.train(0, full_iters)
+        trainer.train(0, efinal)
 
         if comm.is_main_process():
-            losses = np.load(output_dir + output_name + "_losses.npy")
+            losses = np.load(output_dir + run_name + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
-            np.save(output_dir + output_name + "_losses", losses)
+            np.save(output_dir + run_name + "_losses", losses)
 
-            # vallosses = np.load(output_dir + output_name + "_val_losses.npy")
+            # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
             # vallosses = np.concatenate((vallosses, trainer.vallossList))
-            # np.save(output_dir + output_name + "_val_losses", vallosses)
+            # np.save(output_dir + run_name + "_val_losses", vallosses)
 
-        return model
+
 
 
 class DeepDiscInformer(CatInformer):
@@ -162,16 +138,15 @@ class DeepDiscInformer(CatInformer):
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        numclasses=Param(int, 1, required=False, msg="The number of classes to predict."),
-        epochs=Param(int, 20, required=False, msg="Number of epochs to train for."),
+        epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
-        head_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
-        full_iters=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
+        head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
+        full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
         num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
@@ -274,7 +249,7 @@ class DeepDiscEstimator(CatEstimator):
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
     )
     outputs = [("output", TableHandle)]
@@ -299,12 +274,12 @@ class DeepDiscEstimator(CatEstimator):
         numclasses = self.config.numclasses
         epochs = self.config.epochs
         output_dir = self.config.output_dir
-        output_name = self.config.output_name
+        run_name = self.config.run_name
 
         cfg = get_lazy_config(cfgfile, batch_size, numclasses)
         cfg_loader = get_loader_config(output_dir, batch_size)
 
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
+        cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
 
         # Process test images same way as training set
         predictor = return_predictor_transformer(cfg, cfg_loader)
@@ -339,10 +314,8 @@ class DeepDiscPDFEstimator(CatEstimator):
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
-        epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
@@ -397,32 +370,24 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
-        numclasses = self.config.numclasses
-        epochs = self.config.epochs
         output_dir = self.config.output_dir
-        output_name = self.config.output_name
+        run_name = self.config.run_name
 
-        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
-        cfg_loader = get_loader_config(output_dir, batch_size)
-        cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
-
-        self.predictor = return_predictor_transformer(cfg, cfg_loader)
+        cfg = LazyConfig.load(cfgfile)
+        cfg.OUTPUT_DIR = output_dir        
+        
+        #cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
+        cfg.MODEL.WEIGHTS = os.path.join(output_dir, run_name) + ".pth"
+        self.predictor = return_predictor_transformer(cfg)
 
         # Process test images same way as training set
         mapper = RedshiftDictMapper(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
-        print("Processing Data")
-        #         dataset_dicts = {}
-        #         dds = []
-        #         for row in test_data:
-        #             dds.append(mapper(row))
-        #         dataset_dicts["test"] = dds
 
         print("Matching objects")
-        # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
-        # true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
+
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
@@ -433,7 +398,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.pdfs = np.array(pdfs)
 
     def finalize(self):
-        self.zgrid = np.linspace(-1, 5, 200)
+        self.zgrid = np.linspace(0, 5, 200)
 
         zmode = np.array([self.zgrid[np.argmax(pdf)] for pdf in self.pdfs]).flatten()
         qp_distn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
@@ -441,5 +406,4 @@ class DeepDiscPDFEstimator(CatEstimator):
         qp_distn = self.calculate_point_estimates(qp_distn)
         self.add_handle("output", data=qp_distn)
         truth_dict = dict(redshift=self.true_zs)
-        # truth = DS.add_data("truth", truth_dict, TableHandle)
         self.add_handle("truth", data=truth_dict)
