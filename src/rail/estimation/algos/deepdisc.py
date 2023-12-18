@@ -101,7 +101,7 @@ def train(config, all_metadata, train_head=True):
             np.save(output_dir + run_name + "_losses", trainer.lossList)
             # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
-        return model
+
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -127,7 +127,7 @@ def train(config, all_metadata, train_head=True):
             # vallosses = np.concatenate((vallosses, trainer.vallossList))
             # np.save(output_dir + run_name + "_val_losses", vallosses)
 
-        return model
+
 
 
 class DeepDiscInformer(CatInformer):
