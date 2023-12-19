@@ -248,7 +248,7 @@ class DeepDiscInformer(CatInformer):
 
 
         cfg = get_lazy_config(self.config.cfgfile, self.config.batch_size, self.config.numclasses)
-        model = instantiate(cfg.model)
+        model = instantiate(cfg.model)  #! Could be this instead: `model = return_lazy_model(cfg)`
         file_path = os.path.join("./", "deepdisc_informer" + ".pth")
         fv_cp = Checkpointer(model, "./")
         weights = fv_cp._load_file(file_path)
@@ -407,7 +407,6 @@ class DeepDiscPDFEstimator(CatEstimator):
         cfgfile = self.config.cfgfile
         batch_size = self.config.batch_size
         numclasses = self.config.numclasses
-        epochs = self.config.epochs
         output_dir = self.config.output_dir
         output_name = self.config.output_name
 
@@ -417,21 +416,7 @@ class DeepDiscPDFEstimator(CatEstimator):
 
         self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
-        # Process test images same way as training set
-        mapper = RedshiftDictMapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
-        print("Processing Data")
-        #         dataset_dicts = {}
-        #         dds = []
-        #         for row in test_data:
-        #             dds.append(mapper(row))
-        #         dataset_dicts["test"] = dds
-
         print("Matching objects")
-        # true_classes, pred_classes = get_matched_object_classes_new(dataset_dicts["test"],  predictor)
-        # true_zs, pdfs = get_matched_z_pdfs_new(metadata, self.predictor)
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
