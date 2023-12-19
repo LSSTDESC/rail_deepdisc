@@ -27,7 +27,7 @@ from detectron2.config import LazyConfig, get_cfg, instantiate
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 from rail.deepdisc.configs import *
@@ -190,9 +190,6 @@ class DeepDiscInformer(CatInformer):
             self.finalize()
         return self.get_handle("model")
 
-    def finalize(self):
-        pass
-
     def run(self):
         """
         Train a inception NN on a fraction of the training data
@@ -342,20 +339,23 @@ class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
     name = "DeepDiscPDFEstimator"
-    config_options = CatInformer.config_options.copy()
+    config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
         numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
         epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        output_name=Param(str, "deepdisc_informer", required=False, msg="What to call the generated output."),
+        output_name=Param(str, "deepdisc_estimator", required=False, msg="What to call the generated output."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
-    inputs = [("input", TableHandle), ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle), ("truth", TableHandle)]
+    inputs = [("model", ModelHandle),
+              ("input", TableHandle),
+              ("metadata", JsonHandle)]
+    outputs = [("output", QPHandle),
+               ("truth", TableHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
@@ -382,10 +382,12 @@ class DeepDiscPDFEstimator(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
-
+        
+        # load the model weights from the datastore
+        self.open_model(**self.config)
         metadata = self.get_data("metadata")
 
-        print("caching data")
+        print("Caching data")
         flattened_image_iterator = self.input_iterator("input")
         for start_idx, _, images in flattened_image_iterator:
             for image_idx, image in enumerate(images["images"]):
@@ -413,7 +415,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         cfg_loader = get_loader_config(output_dir, batch_size)
         cfg.train.init_checkpoint = os.path.join(output_dir, output_name) + ".pth"
 
-        self.predictor = return_predictor_transformer(cfg, cfg_loader)
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         # Process test images same way as training set
         mapper = RedshiftDictMapper(
