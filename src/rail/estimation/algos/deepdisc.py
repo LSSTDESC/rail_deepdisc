@@ -354,7 +354,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
-        self.open_model(**kwargs)
+        self.open_model(**self.config)
         metadata = self.get_data("metadata")
 
         print("Caching data")
