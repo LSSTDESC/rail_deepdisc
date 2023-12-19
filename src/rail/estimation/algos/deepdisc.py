@@ -1,7 +1,7 @@
 import os
 import sys
 import tempfile
-
+from fvcore.common.checkpoint import Checkpointer
 import detectron2.data as d2data
 import detectron2.solver as solver
 import detectron2.utils.comm as comm
@@ -27,7 +27,7 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 
@@ -165,9 +165,6 @@ class DeepDiscInformer(CatInformer):
             self.finalize()
         return self.get_handle("model")
 
-    def finalize(self):
-        pass
-
     def run(self):
         """
         Train a inception NN on a fraction of the training data
@@ -224,7 +221,13 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        self.model = dict(nnmodel=self.model)
+        cfg = LazyConfig.load(self.config.cfgfile)
+        model = instantiate(cfg.model)
+        weights_file_path = os.path.join(self.config.output_dir, self.config.run_name + ".pth")
+        fv_cp = Checkpointer(model, self.config.output_dir)
+        weights = fv_cp._load_file(weights_file_path)
+
+        self.model = dict(nnmodel=weights)
         self.add_data("model", self.model)
 
     def _get_dist_url(self):
@@ -310,7 +313,7 @@ class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
     name = "DeepDiscPDFEstimator"
-    config_options = CatInformer.config_options.copy()
+    config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
@@ -320,8 +323,11 @@ class DeepDiscPDFEstimator(CatEstimator):
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
     # config_options.update(hdf5_groupname=SHARED_PARAMS)
-    inputs = [("input", TableHandle), ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle), ("truth", TableHandle)]
+    inputs = [("model", ModelHandle),
+              ("input", TableHandle),
+              ("metadata", JsonHandle)]
+    outputs = [("output", QPHandle),
+               ("truth", TableHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
@@ -348,10 +354,10 @@ class DeepDiscPDFEstimator(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
-
+        self.open_model(**kwargs)
         metadata = self.get_data("metadata")
 
-        print("caching data")
+        print("Caching data")
         flattened_image_iterator = self.input_iterator("input")
         for start_idx, _, images in flattened_image_iterator:
             for image_idx, image in enumerate(images["images"]):
@@ -374,20 +380,13 @@ class DeepDiscPDFEstimator(CatEstimator):
         run_name = self.config.run_name
 
         cfg = LazyConfig.load(cfgfile)
-        cfg.OUTPUT_DIR = output_dir        
-        
+        cfg.OUTPUT_DIR = output_dir
+
         #cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
         cfg.MODEL.WEIGHTS = os.path.join(output_dir, run_name) + ".pth"
-        self.predictor = return_predictor_transformer(cfg)
-
-        # Process test images same way as training set
-        mapper = RedshiftDictMapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         print("Matching objects")
-
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
