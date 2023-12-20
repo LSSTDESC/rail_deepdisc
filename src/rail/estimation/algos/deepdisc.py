@@ -322,7 +322,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
-    # config_options.update(hdf5_groupname=SHARED_PARAMS)
+
     inputs = [("model", ModelHandle),
               ("input", TableHandle),
               ("metadata", JsonHandle)]
@@ -334,7 +334,6 @@ class DeepDiscPDFEstimator(CatEstimator):
         Do Estimator specific initialization"""
         self.nnmodel = None
         CatEstimator.__init__(self, args, comm=comm)
-        # self.config.hdf5_groupname = None
 
     def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
@@ -375,15 +374,11 @@ class DeepDiscPDFEstimator(CatEstimator):
                 image_metadata["filename"] = file_path
 
         cfgfile = self.config.cfgfile
-        batch_size = self.config.batch_size
         output_dir = self.config.output_dir
-        run_name = self.config.run_name
 
         cfg = LazyConfig.load(cfgfile)
         cfg.OUTPUT_DIR = output_dir
 
-        #cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
-        cfg.MODEL.WEIGHTS = os.path.join(output_dir, run_name) + ".pth"
         self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         print("Matching objects")
