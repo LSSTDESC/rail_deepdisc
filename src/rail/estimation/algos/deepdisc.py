@@ -407,7 +407,7 @@ class DeepDiscPDFEstimator(CatEstimator):
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     """DeepDISC estimator"""
 
-    name = "DeepDiscPDFEstimator"
+    name = "DeepDiscPDFEstimatorWithChunking"
     config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
@@ -459,7 +459,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         is_first = True
 
         print("Caching data")
-        for start_idx, end_idx, images, _, _, metadata_json_dicts in zip(flattened_image_iterator, metadata_iterator):
+        for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
+            start_idx, end_idx, images = image_chunk
+            _, _, metadata_json_dicts = json_chunk
 
             # Convert the json into dicts and load them into a list
             metadata = [json.loads(this_json) for this_json in metadata_json_dicts['metadata_dicts']]
