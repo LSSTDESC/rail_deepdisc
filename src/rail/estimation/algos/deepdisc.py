@@ -85,7 +85,7 @@ def train(config, all_metadata, train_head=True):
     if training_percent >= 1.0:
         # don't do lossHook
         hookList = [schedulerHook, saveHook]
-        print(f"The lossHook has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+        print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
     else:
         lossHook = return_evallosshook(val_per, model, eval_loader)
         hookList = [lossHook, schedulerHook, saveHook]
