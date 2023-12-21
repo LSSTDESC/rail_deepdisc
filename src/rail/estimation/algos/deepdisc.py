@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -401,3 +402,114 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("output", data=qp_distn)
         truth_dict = dict(redshift=self.true_zs)
         self.add_handle("truth", data=truth_dict)
+
+
+class DeepDiscPDFEstimatorWithChunking(CatEstimator):
+    """DeepDISC estimator"""
+
+    name = "DeepDiscPDFEstimator"
+    config_options = {}
+    config_options.update(
+        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
+        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+    )
+
+    inputs = [("model", ModelHandle),
+              ("input", TableHandle),
+              ("metadata", Hdf5Handle)]
+    outputs = [("output", QPHandle),
+               ("truth", TableHandle)]
+
+    def __init__(self, args, comm=None):
+        """Constructor:
+        Do Estimator specific initialization"""
+        CatEstimator.__init__(self, args, comm=comm)
+
+        self.nnmodel = None
+        self.zgrid = np.linspace(0, 5, 200)
+        self._output_handle = None
+
+    def estimate(self, input_data, input_metadata):
+        with tempfile.TemporaryDirectory() as temp_directory_name:
+            self.temp_dir = temp_directory_name
+            self.set_data("input", input_data)
+            self.set_data("metadata", input_metadata)
+            self.run()
+            self.finalize()
+        return self.get_handle("output")
+
+    def open_model(self, **kwargs):
+        CatEstimator.open_model(self, **kwargs)
+        if self.model is not None:
+            self.nnmodel = self.model["nnmodel"]
+
+    def run(self):
+        """
+        calculate and return PDFs for each galaxy using the trained flow
+        """
+        self.open_model(**self.config)
+
+        flattened_image_iterator = self.input_iterator("input")
+        metadata_iterator = self.input_iterator("metadata")
+        is_first = True
+
+        print("Caching data")
+        for start_idx, end_idx, images, _, _, metadata_json_dicts in zip(flattened_image_iterator, metadata_iterator):
+
+            # Convert the json into dicts and load them into a list
+            metadata = [json.loads(this_json) for this_json in metadata_json_dicts['metadata_dicts']]
+
+            # Reform the flattened image, update metadata with cached image file path
+            for image_idx, image in enumerate(images["images"]):
+                image_metadata = metadata[image_idx]
+                image_height = image_metadata["height"]
+                image_width = image_metadata["width"]
+
+                reformed_image = image.reshape(
+                    self.config.num_camera_filters, image_height, image_width
+                ).astype(np.float32)
+
+                filename = f"image_{start_idx + image_idx}.npy"
+                file_path = os.path.join(self.temp_dir, filename)
+                np.save(file_path, reformed_image)
+                image_metadata["filename"] = file_path
+
+            # process this chunk of data
+            print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
+            self._process_chunk(start_idx, end_idx, metadata, is_first)
+            is_first = False
+
+        # close the output file.
+        print("Finalizing the output file")
+        self._finalize_run()
+
+    def _process_chunk(self, start_idx, end_idx, metadata, is_first):
+        cfg = LazyConfig.load(self.config.cfgfile)
+        cfg.OUTPUT_DIR = self.config.output_dir
+
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+
+        print("Matching objects")
+        true_zs, pdfs = get_matched_z_pdfs(
+            metadata,
+            DC2ImageReader(),
+            lambda dataset_dict: dataset_dict["filename"],
+            self.predictor,
+        )
+        self.true_zs = true_zs
+        self.pdfs = np.array(pdfs)
+
+        # add this chunk of pdfs to a qp.ensemble
+        print("Adding PDFs to ensemble")
+        qp_ensemble = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
+        print("Adding true Z to ensemble")
+        qp_ensemble.set_ancil(dict(true_zs=self.true_zs))
+
+        # write the partial ensemble to a file
+        print("Writing out this ensemble chunk to disk")
+        self._do_chunk_output(qp_ensemble, start_idx, end_idx, is_first)
