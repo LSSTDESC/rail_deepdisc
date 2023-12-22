@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import tempfile
+from collections import namedtuple
 from fvcore.common.checkpoint import Checkpointer
 import detectron2.data as d2data
 import detectron2.solver as solver
@@ -9,6 +10,7 @@ import detectron2.utils.comm as comm
 import numpy as np
 import qp
 from ceci.config import StageParameter as Param
+from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
@@ -31,6 +33,9 @@ from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
+
+# temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
+TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
 
 def train(config, all_metadata, train_head=True):
     
@@ -433,6 +438,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         self.nnmodel = None
         self.zgrid = np.linspace(0, 5, 200)
         self._output_handle = None
+        self._temp_file_meta_tuples = []
 
     def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
@@ -483,14 +489,13 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
-            self._process_chunk(start_idx, end_idx, metadata, is_first)
-            is_first = False
+            self._process_chunk(start_idx, metadata)
 
         # close the output file.
         print("Finalizing the output file")
         self._finalize_run()
 
-    def _process_chunk(self, start_idx, end_idx, metadata, is_first):
+    def _process_chunk(self, start_idx, metadata):
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
 
@@ -512,6 +517,58 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         print("Adding true Z to ensemble")
         qp_ensemble.set_ancil(dict(true_zs=self.true_zs))
 
-        # write the partial ensemble to a file
-        print("Writing out this ensemble chunk to disk")
-        self._do_chunk_output(qp_ensemble, start_idx, end_idx, is_first)
+        # calculate point estimates and save them in ancil data
+        qp_dstn = self.calculate_point_estimates(qp_dstn)
+
+        # write the ensemble to a temporary file, keep track of the file handles
+        num_pdfs = len(self.pdfs)
+        file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
+
+        print("Writing out this temporary ensemble to disk")
+        tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
+        tmp_handle.initialize_write(data=qp_dstn, path=file_path, data_lenght=num_pdfs, communicator=self.comm)
+        tmp_handle.write(data=qp_dstn, path=file_path)
+        tmp_handle.finalize_write()
+
+        # Use a TempFileMeta tuple to track this temporary file
+        tmp_file_meta = TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
+
+        # keep track of the temporary handles so we can merge them later
+        self._temp_file_meta_tuples.append(tmp_file_meta)
+
+    # def _do_chunk_output(self, qp_dstn, start, end, first):
+    #     if first:
+    #         self._output_handle = self.add_handle('output', data=qp_dstn)
+    #         self._output_handle.initialize_write(self._input_length, communicator=self.comm)
+    #     self._output_handle.set_data(qp_dstn, partial=True)
+    #     self._output_handle.write_chunk(start, end)
+
+    def finalize(self):
+        # call the super class to finalize any parallelization work happening
+        PipelineStage.finalize()
+
+        # sort self._temp_file_meta_tuples by start_idx
+        self._temp_file_meta_tuples.sort(key=lambda x: x.start_idx)
+
+        # find the total number of output PDFs for all the temporary files
+        total_pdfs=0
+        for meta in self._temp_file_meta_tuples:
+            total_pdfs += meta.total_pdfs
+
+        # create a new QPHandle for the output file
+        self._output_handle = self.add_handle('output')
+        self._output_handle.initialize_write(total_pdfs, communicator=self.comm)
+
+        # loop over the temporary files and insert them into the new QPHandle
+        previous_index = 0
+        for meta in self._temp_file_meta_tuples:
+            if meta.total_pdfs == 0:
+                continue
+            tmp_handle = meta.file_handle
+            qp_dstn = tmp_handle.read()
+            self._output_handle.set_data(qp_dstn, partial=True)
+            self._output_handle.write_chunk(previous_index, previous_index + meta.total_pdfs)
+            previous_index += meta.total_pdfs
+
+        # finalize the new QPHandle
+        self._output_handle.finalize_write()
