@@ -427,8 +427,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     inputs = [("model", ModelHandle),
               ("input", TableHandle),
               ("metadata", Hdf5Handle)]
-    outputs = [("output", QPHandle),
-               ("truth", TableHandle)]
+    outputs = [("output", QPHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
@@ -566,30 +565,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             self._do_chunk_output(qp_dstn, previous_index, previous_index + meta.total_pdfs, is_first)
             previous_index += meta.total_pdfs
             is_first = False
-
-        # # make a special exception for the very first temporary file
-        # # for anyone looking, this is awful. I'm sorry.
-        # meta = self._temp_file_meta_tuples[0]
-        # tmp_handle = meta.file_handle
-        # qp_dstn = tmp_handle.read()
-        # self._output_handle = self.add_handle('output', data=qp_dstn)
-        # self._output_handle.initialize_write(total_pdfs, communicator=self.comm)
-        # self._output_handle.set_data(qp_dstn, partial=True)
-        # self._output_handle.write_chunk(0, meta.total_pdfs)
-
-        # # loop over the remaining temporary files and insert them into the new QPHandle
-        # previous_index = meta.total_pdfs
-        # for meta in self._temp_file_meta_tuples[1:]:
-        #     if meta.total_pdfs == 0:
-        #         continue
-        #     tmp_handle = meta.file_handle
-        #     qp_dstn = tmp_handle.read()
-        #     self._output_handle.set_data(qp_dstn, partial=True)
-        #     self._output_handle.write_chunk(previous_index, previous_index + meta.total_pdfs)
-        #     previous_index += meta.total_pdfs
-
-        # finalize the new QPHandle
-        self._output_handle.finalize_write()
 
         # call the super class to finalize any parallelization work happening
         PipelineStage.finalize(self)
