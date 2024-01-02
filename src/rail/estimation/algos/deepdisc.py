@@ -513,9 +513,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             lambda dataset_dict: dataset_dict["filename"],
             self.predictor,
         )
-        self.true_zs = true_zs
-        self.pdfs = np.array(pdfs)
-        num_pdfs = len(self.pdfs)
+        pdfs = np.array(pdfs)
+        num_pdfs = len(pdfs)
 
         # don't write out if no pdfs are returned from the model
         if num_pdfs == 0:
@@ -524,9 +523,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
         # add this chunk of pdfs to a qp.ensemble
         print("Adding PDFs to ensemble")
-        qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
+        qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=pdfs))
         print("Adding true Z to ensemble")
-        qp_dstn.set_ancil(dict(true_zs=self.true_zs))
+        qp_dstn.set_ancil(dict(true_zs=true_zs))
 
         # calculate point estimates and save them in ancil data
         qp_dstn = self.calculate_point_estimates(qp_dstn)
@@ -537,7 +536,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         )
 
     def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
-        """Write the qp.ensemble to a temporary file and return the handle.
+        """Write the qp.ensemble to a temporary file and return a named tuple
+        that contains the start index, file name, total number of pdfs, and data
+        handle for the temporary file.
 
         Parameters
         ----------
