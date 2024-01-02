@@ -490,11 +490,17 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
             self._process_chunk(start_idx, metadata)
 
-        # close the output file.
-        # print("Finalizing the output file")
-        # self._finalize_run()
-
     def _process_chunk(self, start_idx, metadata):
+        """For a given block of images and metadata, calculate the PDFs and
+        write them to a temporary file.
+
+        Parameters
+        ----------
+        start_idx : int
+            The starting index of the block of images
+        metadata : list[dict]
+            The list of metadata dictionaries for this block of images
+        """
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
 
@@ -525,22 +531,52 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # calculate point estimates and save them in ancil data
         qp_dstn = self.calculate_point_estimates(qp_dstn)
 
-        # write the ensemble to a temporary file, keep track of the file handles
+        # write out the temp file and track it
+        self._temp_file_meta_tuples.append(
+            self._write_temp_file(qp_dstn, start_idx, num_pdfs)
+        )
+
+    def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
+        """Write the qp.ensemble to a temporary file and return the handle.
+
+        Parameters
+        ----------
+        qp_dstn : qp.Ensemble
+            The qp.ensemble to write to the temporary file
+        start_idx : int
+            The starting index of the block of images
+        num_pdfs : int
+            The number of pdfs in this block of images
+        """
+        print("Writing out this temporary ensemble to disk")
+
+        # create the temporary file path
         file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
 
-        print("Writing out this temporary ensemble to disk")
+        # write the qp.ensemble to the temporary file
         tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
         tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
         tmp_handle.write()
         tmp_handle.finalize_write()
 
-        # Use a TempFileMeta tuple to track this temporary file
-        tmp_file_meta = TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
-
-        # keep track of the temporary handles so we can merge them later
-        self._temp_file_meta_tuples.append(tmp_file_meta)
+        # use a TempFileMeta tuple to track this temporary file
+        return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
 
     def _do_chunk_output(self, qp_dstn, start, end, first):
+        """Function that adds a qp Ensemble to a given output file.
+
+        Parameters
+        ----------
+        qp_dstn : qp.Ensemble
+            The qp.ensemble to write to the output file
+        start : int
+            The starting index to write the qp.ensemble to
+        end : int
+            The ending index to write the qp.ensemble to
+        first : bool
+            Whether this is the first time writing to the output file, used to
+            initialize the file.
+        """
         if first:
             self._output_handle = self.add_handle('output', data=qp_dstn)
             self._output_handle.initialize_write(self.total_pdfs, communicator=self.comm)
@@ -548,6 +584,11 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         self._output_handle.write_chunk(start, end)
 
     def finalize(self):
+        """Creates the final output file.
+        Sort the list of temporary files using the start_idx and then write the
+        contents of each temporary file to the final output file.
+        """
+
         # sort self._temp_file_meta_tuples by start_idx
         self._temp_file_meta_tuples.sort(key=lambda x: x.start_idx)
 
