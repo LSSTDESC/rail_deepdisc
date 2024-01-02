@@ -30,7 +30,7 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 
@@ -157,7 +157,7 @@ class DeepDiscInformer(CatInformer):
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
     )
-    inputs = [('input', TableHandle), ('metadata', JsonHandle)]
+    inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
@@ -175,13 +175,25 @@ class DeepDiscInformer(CatInformer):
         """
         Train a inception NN on a fraction of the training data
         """
-        self.metadata = self.get_data("metadata")
+        self.metadata = []
 
         print("Caching data")
+
+        # create iterators for both the flattened images and the metadata
         flattened_image_iterator = self.input_iterator("input")
-        for start_idx, _, images in flattened_image_iterator:
+        metadata_iterator = self.input_iterator("metadata")
+
+        # iterate over the flattened images and metadata in parallel
+        for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
+            start_idx, _, images = image_chunk
+            _, _, metadata_json_dicts = json_chunk
+
+            # convert the json into dicts and load them into a list
+            metadata_chunk = [json.loads(this_json) for this_json in metadata_json_dicts['metadata_dicts']]
+
+            # reform the flattened image, update metadata with cached image file path
             for image_idx, image in enumerate(images["images"]):
-                this_image_metadata = self.metadata[start_idx + image_idx]
+                this_image_metadata = metadata_chunk[image_idx]
                 image_height = this_image_metadata["height"]
                 image_width = this_image_metadata["width"]
 
@@ -194,6 +206,9 @@ class DeepDiscInformer(CatInformer):
                 np.save(file_path, reformed_image)
 
                 this_image_metadata["filename"] = file_path
+
+            # add this chunk of metadata to the list of metadata
+            self.metadata.append(metadata_chunk)
 
         dist_url = self._get_dist_url()
 
@@ -461,7 +476,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
-        is_first = True
 
         print("Caching data")
         for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
