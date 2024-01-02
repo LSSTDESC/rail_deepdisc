@@ -30,7 +30,7 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, ModelHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 
@@ -208,7 +208,7 @@ class DeepDiscInformer(CatInformer):
                 this_image_metadata["filename"] = file_path
 
             # add this chunk of metadata to the list of metadata
-            self.metadata.append(metadata_chunk)
+            self.metadata.extend(metadata_chunk)
 
         dist_url = self._get_dist_url()
 
