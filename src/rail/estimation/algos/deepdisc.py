@@ -2,7 +2,7 @@ import json
 import os
 import sys
 import tempfile
-from collections import namedtuple
+from dataclasses import dataclass
 from fvcore.common.checkpoint import Checkpointer
 import detectron2.data as d2data
 import detectron2.solver as solver
@@ -34,8 +34,24 @@ from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableH
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 
-# temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
-TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
+@dataclass
+class TempFileMeta:
+    """Data class to hold for temporary file metadata. Using dataclass instead of 
+    namedtuple because we need to modify the values after creation."""
+    start_idx: int
+    file_name: str
+    total_pdfs: int
+    file_handle: QPHandle
+
+def get_dist_url():
+        port = (
+            2**15
+            + 2**14
+            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+        )
+        dist_url = "tcp://127.0.0.1:{}".format(port)
+        return dist_url
+
 
 def train(config, all_metadata, train_head=True):
     
@@ -139,8 +155,6 @@ def train(config, all_metadata, train_head=True):
             # np.save(output_dir + run_name + "_val_losses", vallosses)
 
 
-
-
 class DeepDiscInformer(CatInformer):
     """Placeholder for informer stage class"""
 
@@ -215,8 +229,6 @@ class DeepDiscInformer(CatInformer):
             # add this chunk of metadata to the list of metadata
             self.metadata.extend(metadata_chunk)
 
-        dist_url = self._get_dist_url()
-
         print("Training head layers")
         train_head = True
         launch(
@@ -224,7 +236,7 @@ class DeepDiscInformer(CatInformer):
             num_gpus_per_machine=self.config.num_gpus,
             num_machines=self.config.num_machines,
             machine_rank=self.config.machine_rank,
-            dist_url=dist_url,
+            dist_url=get_dist_url(),
             args=(
                 self.config.to_dict(),
                 self.metadata,
@@ -239,7 +251,7 @@ class DeepDiscInformer(CatInformer):
             num_gpus_per_machine=self.config.num_gpus,
             num_machines=self.config.num_machines,
             machine_rank=self.config.machine_rank,
-            dist_url=dist_url,
+            dist_url=get_dist_url(),
             args=(
                 self.config.to_dict(),
                 self.metadata,
@@ -255,15 +267,6 @@ class DeepDiscInformer(CatInformer):
 
         self.model = dict(nnmodel=weights)
         self.add_data("model", self.model)
-
-    def _get_dist_url(self):
-        port = (
-            2**15
-            + 2**14
-            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-        )
-        dist_url = "tcp://127.0.0.1:{}".format(port)
-        return dist_url
 
 
 class DeepDiscPDFEstimator(CatEstimator):
@@ -438,30 +441,50 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
-            self._process_chunk(start_idx, metadata)
+            
+            launch(
+                self._process_chunk,
+                num_gpus_per_machine=self.config.num_gpus,
+                num_machines=self.config.num_machines,
+                machine_rank=self.config.machine_rank,
+                dist_url=get_dist_url(),
+                args=(
+                    self.config.to_dict(),
+                    start_idx,
+                    metadata,
+                    self.nnmodel,
+                    self.comm,
+                ),
+            )
 
-    def _process_chunk(self, start_idx, metadata):
+    def _process_chunk(self, config, start_idx, metadata, nnmodel, comm=None):
         """For a given block of images and metadata, calculate the PDFs and
         write them to a temporary file.
 
         Parameters
         ----------
+        config : dict
+            The configuration dictionary for the estimator
         start_idx : int
             The starting index of the block of images
         metadata : list[dict]
             The list of metadata dictionaries for this block of images
+        nnmodel : dict
+            The dictionary containing the trained neural network model
+        comm : mpi4py.MPI.Comm
+            The MPI communicator
         """
-        cfg = LazyConfig.load(self.config.cfgfile)
-        cfg.OUTPUT_DIR = self.config.output_dir
+        cfg = LazyConfig.load(config['cfgfile'])
+        cfg.OUTPUT_DIR = config['output_dir']
 
-        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+        predictor = return_predictor_transformer(cfg, checkpoint=nnmodel)
 
         print("Matching objects")
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
             lambda dataset_dict: dataset_dict["filename"],
-            self.predictor,
+            predictor,
         )
         pdfs = np.array(pdfs)
         num_pdfs = len(pdfs)
@@ -480,38 +503,21 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # calculate point estimates and save them in ancil data
         qp_dstn = self.calculate_point_estimates(qp_dstn)
 
-        # write out the temp file and track it
-        self._temp_file_meta_tuples.append(
-            self._write_temp_file(qp_dstn, start_idx, num_pdfs)
+        # write out the temp file
+        temp_file_metadata = write_temp_file(
+            config['temp_dir'],
+            qp_dstn,
+            start_idx,
+            num_pdfs,
+            comm,
         )
 
-    def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
-        """Write the qp.ensemble to a temporary file and return a named tuple
-        that contains the start index, file name, total number of pdfs, and data
-        handle for the temporary file.
-
-        Parameters
-        ----------
-        qp_dstn : qp.Ensemble
-            The qp.ensemble to write to the temporary file
-        start_idx : int
-            The starting index of the block of images
-        num_pdfs : int
-            The number of pdfs in this block of images
-        """
-        print("Writing out this temporary ensemble to disk")
-
-        # create the temporary file path
-        file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
-
-        # write the qp.ensemble to the temporary file
-        tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
-        tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
-        tmp_handle.write()
-        tmp_handle.finalize_write()
-
-        # use a TempFileMeta tuple to track this temporary file
-        return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
+        #! I don't think that we'll have access to a list to append these values
+        #! when we are parallelizing this code.
+        #? Could we use torch distributed file store here? 
+        #? https://pytorch.org/docs/stable/distributed.html#torch.distributed.FileStore
+        # add the temp file metadata to the list of temp files
+        self._temp_file_meta_tuples.append(temp_file_metadata)
 
     def _do_chunk_output(self, qp_dstn, start, end, first):
         """Function that adds a qp Ensemble to a given output file.
@@ -560,3 +566,34 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
         # call the super class to finalize any parallelization work happening
         PipelineStage.finalize(self)
+
+
+def write_temp_file(output_directory, qp_dstn, start_idx, num_pdfs, comm=None):
+    """Write the qp.ensemble to a temporary file and return a named tuple
+    that contains the start index, file name, total number of pdfs, and data
+    handle for the temporary file.
+
+    Parameters
+    ----------
+    output_directory : str
+        The directory to write the temporary file to
+    qp_dstn : qp.Ensemble
+        The qp.ensemble to write to the temporary file
+    start_idx : int
+        The starting index of the block of images
+    num_pdfs : int
+        The number of pdfs in this block of images
+    """
+    print("Writing out this temporary ensemble to disk")
+
+    # create the temporary file path
+    file_path = os.path.join(output_directory, f"pdfs_{start_idx}.hdf5")
+
+    # write the qp.ensemble to the temporary file
+    tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
+    tmp_handle.initialize_write(data_length=num_pdfs, communicator=comm)
+    tmp_handle.write()
+    tmp_handle.finalize_write()
+
+    # use a TempFileMeta tuple to track this temporary file
+    return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
