@@ -1,13 +1,16 @@
+import json
 import os
 import sys
 import tempfile
-
+from collections import namedtuple
+from fvcore.common.checkpoint import Checkpointer
 import detectron2.data as d2data
 import detectron2.solver as solver
 import detectron2.utils.comm as comm
 import numpy as np
 import qp
 from ceci.config import StageParameter as Param
+from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
@@ -27,9 +30,12 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
+
+# temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
+TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
 
 def train(config, all_metadata, train_head=True):
     
@@ -80,10 +86,15 @@ def train(config, all_metadata, train_head=True):
 
 
     saveHook = return_savehook(run_name)
-    lossHook = return_evallosshook(val_per, model, eval_loader)
     schedulerHook = return_schedulerhook(optimizer)
-    #hookList = [lossHook, schedulerHook, saveHook]
-    hookList = [schedulerHook, saveHook]
+
+    if training_percent >= 1.0:
+        # don't do lossHook
+        hookList = [schedulerHook, saveHook]
+        print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+    else:
+        lossHook = return_evallosshook(val_per, model, eval_loader)
+        hookList = [lossHook, schedulerHook, saveHook]
 
     if train_head:
 
@@ -151,7 +162,7 @@ class DeepDiscInformer(CatInformer):
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
     )
-    inputs = [('input', TableHandle), ('metadata', JsonHandle)]
+    inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
@@ -165,20 +176,29 @@ class DeepDiscInformer(CatInformer):
             self.finalize()
         return self.get_handle("model")
 
-    def finalize(self):
-        pass
-
     def run(self):
         """
         Train a inception NN on a fraction of the training data
         """
-        self.metadata = self.get_data("metadata")
+        self.metadata = []
 
         print("Caching data")
+
+        # create iterators for both the flattened images and the metadata
         flattened_image_iterator = self.input_iterator("input")
-        for start_idx, _, images in flattened_image_iterator:
+        metadata_iterator = self.input_iterator("metadata")
+
+        # iterate over the flattened images and metadata in parallel
+        for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
+            start_idx, _, images = image_chunk
+            _, _, metadata_json_dicts = json_chunk
+
+            # convert the json into dicts and load them into a list
+            metadata_chunk = [json.loads(this_json) for this_json in metadata_json_dicts['metadata_dicts']]
+
+            # reform the flattened image, update metadata with cached image file path
             for image_idx, image in enumerate(images["images"]):
-                this_image_metadata = self.metadata[start_idx + image_idx]
+                this_image_metadata = metadata_chunk[image_idx]
                 image_height = this_image_metadata["height"]
                 image_width = this_image_metadata["width"]
 
@@ -191,6 +211,9 @@ class DeepDiscInformer(CatInformer):
                 np.save(file_path, reformed_image)
 
                 this_image_metadata["filename"] = file_path
+
+            # add this chunk of metadata to the list of metadata
+            self.metadata.extend(metadata_chunk)
 
         dist_url = self._get_dist_url()
 
@@ -224,7 +247,13 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        self.model = dict(nnmodel=self.model)
+        cfg = LazyConfig.load(self.config.cfgfile)
+        model = instantiate(cfg.model)
+        weights_file_path = os.path.join(self.config.output_dir, self.config.run_name + ".pth")
+        fv_cp = Checkpointer(model, self.config.output_dir)
+        weights = fv_cp._load_file(weights_file_path)
+
+        self.model = dict(nnmodel=weights)
         self.add_data("model", self.model)
 
     def _get_dist_url(self):
@@ -237,80 +266,11 @@ class DeepDiscInformer(CatInformer):
         return dist_url
 
 
-#! Do we use still want this class???
-class DeepDiscEstimator(CatEstimator):
-    """DeepDISC estimator"""
-
-    name = "DeepDiscEstimator"
-    config_options = CatEstimator.config_options.copy()
-    config_options.update(
-        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        numclasses=Param(int, 1, required=False, msg="The number of classes in the model."),
-        epochs=Param(int, 20, required=False, msg="How many epochs to run estimation."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-    )
-    outputs = [("output", TableHandle)]
-
-    def __init__(self, args, comm=None):
-        """Constructor:
-        Do Estimator specific initialization"""
-
-        self.nnmodel = None
-        CatEstimator.__init__(self, args, comm=comm)
-
-    def open_model(self, **kwargs):
-        CatEstimator.open_model(self, **kwargs)
-        if self.model is not None:
-            self.nnmodel = self.model["nnmodel"]
-
-    def run(self):
-        test_data = self.get_data("input")
-
-        cfgfile = self.config.cfgfile
-        batch_size = self.config.batch_size
-        numclasses = self.config.numclasses
-        epochs = self.config.epochs
-        output_dir = self.config.output_dir
-        run_name = self.config.run_name
-
-        cfg = get_lazy_config(cfgfile, batch_size, numclasses)
-        cfg_loader = get_loader_config(output_dir, batch_size)
-
-        cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
-
-        # Process test images same way as training set
-        predictor = return_predictor_transformer(cfg, cfg_loader)
-        mapper = RedshiftFlatDictMapper().map_data
-
-        print("Processing Data")
-        dataset_dicts = {}
-        dds = []
-        for row in test_data:
-            dds.append(mapper(row))
-        dataset_dicts["test"] = dds
-
-        print("Matching objects")
-        true_classes, pred_classes = get_matched_object_classes_new(
-            dataset_dicts["test"], predictor
-        )
-        self.true_zs, self.preds = get_matched_z_points_new(
-            dataset_dicts["test"], predictor
-        )
-        # self.pred = self.preds.squeeze()
-
-    def finalize(self):
-        preds = np.array(self.preds)
-        self.add_handle("output", data=preds)
-
-
 class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
     name = "DeepDiscPDFEstimator"
-    config_options = CatInformer.config_options.copy()
+    config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
         batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
@@ -319,16 +279,18 @@ class DeepDiscPDFEstimator(CatEstimator):
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
     )
-    # config_options.update(hdf5_groupname=SHARED_PARAMS)
-    inputs = [("input", TableHandle), ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle), ("truth", TableHandle)]
+
+    inputs = [("model", ModelHandle),
+              ("input", TableHandle),
+              ("metadata", JsonHandle)]
+    outputs = [("output", QPHandle),
+               ("truth", TableHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
         Do Estimator specific initialization"""
         self.nnmodel = None
         CatEstimator.__init__(self, args, comm=comm)
-        # self.config.hdf5_groupname = None
 
     def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
@@ -348,10 +310,10 @@ class DeepDiscPDFEstimator(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
-
+        self.open_model(**self.config)
         metadata = self.get_data("metadata")
 
-        print("caching data")
+        print("Caching data")
         flattened_image_iterator = self.input_iterator("input")
         for start_idx, _, images in flattened_image_iterator:
             for image_idx, image in enumerate(images["images"]):
@@ -369,25 +331,14 @@ class DeepDiscPDFEstimator(CatEstimator):
                 image_metadata["filename"] = file_path
 
         cfgfile = self.config.cfgfile
-        batch_size = self.config.batch_size
         output_dir = self.config.output_dir
-        run_name = self.config.run_name
 
         cfg = LazyConfig.load(cfgfile)
-        cfg.OUTPUT_DIR = output_dir        
-        
-        #cfg.train.init_checkpoint = os.path.join(output_dir, run_name) + ".pth"
-        cfg.MODEL.WEIGHTS = os.path.join(output_dir, run_name) + ".pth"
-        self.predictor = return_predictor_transformer(cfg)
+        cfg.OUTPUT_DIR = output_dir
 
-        # Process test images same way as training set
-        mapper = RedshiftDictMapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         print("Matching objects")
-
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
@@ -407,3 +358,205 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("output", data=qp_distn)
         truth_dict = dict(redshift=self.true_zs)
         self.add_handle("truth", data=truth_dict)
+
+
+class DeepDiscPDFEstimatorWithChunking(CatEstimator):
+    """DeepDISC estimator"""
+
+    name = "DeepDiscPDFEstimatorWithChunking"
+    config_options = {}
+    config_options.update(
+        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
+        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
+        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+    )
+
+    inputs = [("model", ModelHandle),
+              ("input", TableHandle),
+              ("metadata", Hdf5Handle)]
+    outputs = [("output", QPHandle)]
+
+    def __init__(self, args, comm=None):
+        """Constructor:
+        Do Estimator specific initialization"""
+        CatEstimator.__init__(self, args, comm=comm)
+
+        self.nnmodel = None
+        self.zgrid = np.linspace(0, 5, 200)
+        self._output_handle = None
+        self._temp_file_meta_tuples = []
+
+    def estimate(self, input_data, input_metadata):
+        with tempfile.TemporaryDirectory() as temp_directory_name:
+            self.temp_dir = temp_directory_name
+            self.set_data("input", input_data)
+            self.set_data("metadata", input_metadata)
+            self.run()
+            self.finalize()
+        return self.get_handle("output")
+
+    def open_model(self, **kwargs):
+        CatEstimator.open_model(self, **kwargs)
+        if self.model is not None:
+            self.nnmodel = self.model["nnmodel"]
+
+    def run(self):
+        """
+        calculate and return PDFs for each galaxy using the trained flow
+        """
+        self.open_model(**self.config)
+
+        flattened_image_iterator = self.input_iterator("input")
+        metadata_iterator = self.input_iterator("metadata")
+
+        print("Caching data")
+        for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
+            start_idx, end_idx, images = image_chunk
+            _, _, metadata_json_dicts = json_chunk
+
+            # Convert the json into dicts and load them into a list
+            metadata = [json.loads(this_json) for this_json in metadata_json_dicts['metadata_dicts']]
+
+            # Reform the flattened image, update metadata with cached image file path
+            for image_idx, image in enumerate(images["images"]):
+                image_metadata = metadata[image_idx]
+                image_height = image_metadata["height"]
+                image_width = image_metadata["width"]
+
+                reformed_image = image.reshape(
+                    self.config.num_camera_filters, image_height, image_width
+                ).astype(np.float32)
+
+                filename = f"image_{start_idx + image_idx}.npy"
+                file_path = os.path.join(self.temp_dir, filename)
+                np.save(file_path, reformed_image)
+                image_metadata["filename"] = file_path
+
+            # process this chunk of data
+            print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
+            self._process_chunk(start_idx, metadata)
+
+    def _process_chunk(self, start_idx, metadata):
+        """For a given block of images and metadata, calculate the PDFs and
+        write them to a temporary file.
+
+        Parameters
+        ----------
+        start_idx : int
+            The starting index of the block of images
+        metadata : list[dict]
+            The list of metadata dictionaries for this block of images
+        """
+        cfg = LazyConfig.load(self.config.cfgfile)
+        cfg.OUTPUT_DIR = self.config.output_dir
+
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+
+        print("Matching objects")
+        true_zs, pdfs = get_matched_z_pdfs(
+            metadata,
+            DC2ImageReader(),
+            lambda dataset_dict: dataset_dict["filename"],
+            self.predictor,
+        )
+        pdfs = np.array(pdfs)
+        num_pdfs = len(pdfs)
+
+        # don't write out if no pdfs are returned from the model
+        if num_pdfs == 0:
+            print("No PDFs returned from the model, skipping this chunk")
+            return
+
+        # add this chunk of pdfs to a qp.ensemble
+        print("Adding PDFs to ensemble")
+        qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=pdfs))
+        print("Adding true Z to ensemble")
+        qp_dstn.set_ancil(dict(true_zs=true_zs))
+
+        # calculate point estimates and save them in ancil data
+        qp_dstn = self.calculate_point_estimates(qp_dstn)
+
+        # write out the temp file and track it
+        self._temp_file_meta_tuples.append(
+            self._write_temp_file(qp_dstn, start_idx, num_pdfs)
+        )
+
+    def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
+        """Write the qp.ensemble to a temporary file and return a named tuple
+        that contains the start index, file name, total number of pdfs, and data
+        handle for the temporary file.
+
+        Parameters
+        ----------
+        qp_dstn : qp.Ensemble
+            The qp.ensemble to write to the temporary file
+        start_idx : int
+            The starting index of the block of images
+        num_pdfs : int
+            The number of pdfs in this block of images
+        """
+        print("Writing out this temporary ensemble to disk")
+
+        # create the temporary file path
+        file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
+
+        # write the qp.ensemble to the temporary file
+        tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
+        tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
+        tmp_handle.write()
+        tmp_handle.finalize_write()
+
+        # use a TempFileMeta tuple to track this temporary file
+        return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
+
+    def _do_chunk_output(self, qp_dstn, start, end, first):
+        """Function that adds a qp Ensemble to a given output file.
+
+        Parameters
+        ----------
+        qp_dstn : qp.Ensemble
+            The qp.ensemble to write to the output file
+        start : int
+            The starting index to write the qp.ensemble to
+        end : int
+            The ending index to write the qp.ensemble to
+        first : bool
+            Whether this is the first time writing to the output file, used to
+            initialize the file.
+        """
+        if first:
+            self._output_handle = self.add_handle('output', data=qp_dstn)
+            self._output_handle.initialize_write(self.total_pdfs, communicator=self.comm)
+        self._output_handle.set_data(qp_dstn, partial=True)
+        self._output_handle.write_chunk(start, end)
+
+    def finalize(self):
+        """Creates the final output file.
+        Sort the list of temporary files using the start_idx and then write the
+        contents of each temporary file to the final output file.
+        """
+
+        # sort self._temp_file_meta_tuples by start_idx
+        self._temp_file_meta_tuples.sort(key=lambda x: x.start_idx)
+
+        # find the total number of output PDFs for all the temporary files
+        self.total_pdfs=0
+        for meta in self._temp_file_meta_tuples:
+            self.total_pdfs += meta.total_pdfs
+
+        # open each temporary file, write it's contents to the final file.
+        is_first = True
+        previous_index = 0
+        for meta in self._temp_file_meta_tuples:
+            tmp_handle = meta.file_handle
+            qp_dstn = tmp_handle.read()
+            self._do_chunk_output(qp_dstn, previous_index, previous_index + meta.total_pdfs, is_first)
+            previous_index += meta.total_pdfs
+            is_first = False
+
+        # call the super class to finalize any parallelization work happening
+        PipelineStage.finalize(self)
