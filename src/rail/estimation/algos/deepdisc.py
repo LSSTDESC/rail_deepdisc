@@ -409,7 +409,11 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         calculate and return PDFs for each galaxy using the trained flow
         """
         self.open_model(**self.config)
+        
+        cfg = LazyConfig.load(self.config.cfgfile)
+        cfg.OUTPUT_DIR = self.config.output_dir
 
+        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
 
@@ -451,10 +455,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         metadata : list[dict]
             The list of metadata dictionaries for this block of images
         """
-        cfg = LazyConfig.load(self.config.cfgfile)
-        cfg.OUTPUT_DIR = self.config.output_dir
-
-        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         print("Matching objects")
         true_zs, pdfs = get_matched_z_pdfs(
