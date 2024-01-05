@@ -278,13 +278,15 @@ class DeepDiscPDFEstimator(CatEstimator):
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+        include_ids=Param(bool, False, required=False, msg="Include object IDs in QP ensemble."),
+
     )
 
     inputs = [("model", ModelHandle),
               ("input", TableHandle),
               ("metadata", JsonHandle)]
     outputs = [("output", QPHandle),
-               ("truth", TableHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
@@ -339,14 +341,18 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
 
         print("Matching objects")
-        true_zs, pdfs = get_matched_z_pdfs(
+        true_zs, pdfs, matched_ids = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
             lambda dataset_dict: dataset_dict["filename"],
             self.predictor,
+            self.config.include_ids
+
         )
-        self.true_zs = true_zs
+        self.true_zs = np.array(true_zs)
         self.pdfs = np.array(pdfs)
+        if self.include_ids:
+            self.matched_ids = np.array(matched_ids)
 
     def finalize(self):
         self.zgrid = np.linspace(0, 5, 200)
@@ -355,9 +361,12 @@ class DeepDiscPDFEstimator(CatEstimator):
         qp_distn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
         qp_distn.set_ancil(dict(zmode=zmode))
         qp_distn = self.calculate_point_estimates(qp_distn)
+        qp_dstn.add_to_ancil(dict(true_zs=self.true_zs))
+        if self.include_ids:
+            qp_dstn.add_to_ancil(dict(ids=self.matched_ids))
+
         self.add_handle("output", data=qp_distn)
-        truth_dict = dict(redshift=self.true_zs)
-        self.add_handle("truth", data=truth_dict)
+
 
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
@@ -373,6 +382,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+        include_ids=Param(bool, False, required=False, msg="Include object IDs in QP ensemble."),
+
     )
 
     inputs = [("model", ModelHandle),
@@ -457,12 +468,15 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
 
         print("Matching objects")
-        true_zs, pdfs = get_matched_z_pdfs(
+
+        true_zs, pdfs, matched_ids = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
             lambda dataset_dict: dataset_dict["filename"],
             self.predictor,
+            self.config.include_ids
         )
+
         pdfs = np.array(pdfs)
         num_pdfs = len(pdfs)
 
@@ -474,11 +488,16 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # add this chunk of pdfs to a qp.ensemble
         print("Adding PDFs to ensemble")
         qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=pdfs))
-        print("Adding true Z to ensemble")
-        qp_dstn.set_ancil(dict(true_zs=true_zs))
 
         # calculate point estimates and save them in ancil data
         qp_dstn = self.calculate_point_estimates(qp_dstn)
+        
+        print("Adding true Z to ensemble")
+        qp_dstn.add_to_ancil(dict(true_zs=np.array(true_zs)))
+
+        if self.config.include_ids:
+            print("Adding object IDs to ensemble")
+            qp_dstn.add_to_ancil(dict(ids=np.array(matched_ids)))   
 
         # write out the temp file and track it
         self._temp_file_meta_tuples.append(
