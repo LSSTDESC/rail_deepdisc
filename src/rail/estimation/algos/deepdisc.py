@@ -15,7 +15,8 @@ from deepdisc.data_format.augment_image import train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
 #                                                register_loaded_data_set)
-from deepdisc.inference.match_objects import (get_matched_object_classes_new,
+from deepdisc.inference.match_objects import (run_batched_match_redshift,
+                                              get_matched_object_classes_new,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
@@ -468,7 +469,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             args=(
                 metadata,
                 q,
-                rank,
                 size,
                 start_idx
             ),
@@ -481,23 +481,37 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             self._temp_file_meta_tuples.append(q.get())
 
 
-    def _do_inference(self, metadata, q, rank, size, start_idx):
+    def _do_inference(self, metadata, q, size, start_idx):
         """This is the function that is called by the `launch` function and parallelized
         across all available GPUs."""
 
         group = dist.new_group()
 
         print("Matching objects")
-        true_zs, pdfs = get_matched_z_pdfs(
-            metadata,
-            DC2ImageReader(),
-            lambda dataset_dict: dataset_dict["filename"],
-            self.predictor,
+
+        mapper = RedshiftDictMapper(
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+        ).map_data
+
+        #! Confirm that `build_detection_test_loader` is correct. The parent class
+        #! `build_batch_data_loader` might be better???
+        loader = d2data.build_detection_test_loader(
+            metadata, mapper=mapper, batch_size=1
         )
+
+        # this batched version will break up the metadata across GPUs under the hood.
+        true_zs, pdfs, ids = run_batched_match_redshift(loader, self.predictor, ids=True)
+
+        # true_zs, pdfs = get_matched_z_pdfs(
+        #     metadata,
+        #     DC2ImageReader(),
+        #     lambda dataset_dict: dataset_dict["filename"],
+        #     self.predictor,
+        # )
         pdfs = np.array(pdfs)
         num_pdfs = len(pdfs)
 
-        if rank == 0:
+        if dist.get_rank() == 0:
             pdfs_list = [torch.empty(1) for _ in range(size)]
             dist.gather(pdfs, gather_list=pdfs_list, dst=0, group=group)
             dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
