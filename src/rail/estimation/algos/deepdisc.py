@@ -492,7 +492,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
-            self._process_chunk(start_idx, metadata)
+            self._process_chunk(start_idx, metadata, 0, 1)
 
     def _process_chunk(self, start_idx, metadata, rank, size):
         """For a given block of images and metadata, calculate the PDFs and
