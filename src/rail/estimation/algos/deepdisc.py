@@ -362,6 +362,54 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 
 
+def _do_inference(q, predictor, metadata, size, zgrid):
+        """This is the function that is called by the `launch` function and parallelized
+        across all available GPUs."""
+
+        group = dist.new_group()
+
+        print("Matching objects")
+
+        mapper = RedshiftDictMapper(
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+        ).map_data
+
+        #! Confirm that `build_detection_test_loader` is correct. The parent class
+        #! `build_batch_data_loader` might be better???
+        loader = d2data.build_detection_test_loader(
+            metadata, mapper=mapper, batch_size=1
+        )
+
+        # this batched version will break up the metadata across GPUs under the hood.
+        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
+
+        pdfs = np.array(pdfs)
+        num_pdfs = len(pdfs)
+
+        if dist.get_rank() == 0:
+            pdfs_list = [torch.empty(1) for _ in range(size)]
+            dist.gather(pdfs, gather_list=pdfs_list, dst=0, group=group)
+            dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
+
+            #! Still need to `dist.gather` the `true_zs`.
+            #! The concern is that we might have a different order compared to the pdfs
+
+            # add this chunk of pdfs to a qp.ensemble
+            print("Adding PDFs to ensemble")
+            all_pdfs = torch.cat(pdfs_list, dim=0)
+            qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
+
+            #! Still need to add the `gather`ed true_zs to the qp.ensemble
+            # print("Adding true Z to ensemble")
+            # qp_dstn.set_ancil(dict(true_zs=true_zs))
+
+            # write out the temp file and track it
+            q.put(qp_dstn)
+
+        else:
+            dist.gather(pdfs, gather_list=[], dst=0, group=group)
+
+
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     """DeepDISC estimator"""
 
@@ -458,88 +506,38 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
+        # createa a queue to receive output from the parallelized function
         q = mp.Queue()
 
+        # call detectron2's `launch` function to parallelize the inference
         launch(
-            self._do_inference,
-            num_gpus_per_machine=1, #! correct this to be a StageParam
-            num_machines=size, #! correct this to be a StageParam
-            machine_rank=rank, #? Need to figure out how to get this, maybe from the comm? or ceci???
+            _do_inference,
+            num_gpus_per_machine=2, #! correct this to be a StageParam
+            num_machines=1, #! correct this to be a StageParam
+            machine_rank=0, #? Need to figure out how to get this, maybe from the comm? or ceci???
             dist_url = _get_dist_url(),
             args=(
-                metadata,
                 q,
+                self.predictor,
+                metadata,
                 size,
-                start_idx
+                self.zgrid,
             ),
         )
 
-        temp_file_tuple = q.get()
+        # grab the output qp.Ensemble from the queue
+        #! should guard this in case the queue is empty
+        qp_dstn = q.get()
 
-        # if nothing was written out, don't add the tuple to the list
-        if temp_file_tuple.total_pdfs:
-            self._temp_file_meta_tuples.append(q.get())
-
-
-    def _do_inference(self, metadata, q, size, start_idx):
-        """This is the function that is called by the `launch` function and parallelized
-        across all available GPUs."""
-
-        group = dist.new_group()
-
-        print("Matching objects")
-
-        mapper = RedshiftDictMapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
-        #! Confirm that `build_detection_test_loader` is correct. The parent class
-        #! `build_batch_data_loader` might be better???
-        loader = d2data.build_detection_test_loader(
-            metadata, mapper=mapper, batch_size=1
-        )
-
-        # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids = run_batched_match_redshift(loader, self.predictor, ids=True)
-
-        # true_zs, pdfs = get_matched_z_pdfs(
-        #     metadata,
-        #     DC2ImageReader(),
-        #     lambda dataset_dict: dataset_dict["filename"],
-        #     self.predictor,
-        # )
-        pdfs = np.array(pdfs)
-        num_pdfs = len(pdfs)
-
-        if dist.get_rank() == 0:
-            pdfs_list = [torch.empty(1) for _ in range(size)]
-            dist.gather(pdfs, gather_list=pdfs_list, dst=0, group=group)
-            dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
-
-            #! Still need to `dist.gather` the `true_zs`.
-            #! The concern is that we might have a different order compared to the pdfs
-
-            # add this chunk of pdfs to a qp.ensemble
-            print("Adding PDFs to ensemble")
-            all_pdfs = torch.cat(pdfs_list, dim=0)
-            qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=all_pdfs))
-            
-            #! Still need to add the `gather`ed true_zs to the qp.ensemble
-            # print("Adding true Z to ensemble")
-            # qp_dstn.set_ancil(dict(true_zs=true_zs))
-
-            # calculate point estimates and save them in ancil data
+        # if there are pdfs in the qp.ensemble, calculate point estimates and
+        # write the qp.ensemble to a temporary file.
+        if qp_dstn.npdf:
             qp_dstn = self.calculate_point_estimates(qp_dstn)
-
-            # write out the temp file and track it
-            q.put(self._write_temp_file(qp_dstn, start_idx, num_pdfs))
-
-        else:
-            dist.gather(pdfs, gather_list=[], dst=0, group=group)
+            temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
+            self._temp_file_meta_tuples.append(temp_file_tuple)
 
 
-    #! Will need to update this so that it is NOT a class method.
-    def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
+    def _write_temp_file(self, qp_dstn, start_idx):
         """Write the qp.ensemble to a temporary file and return a named tuple
         that contains the start index, file name, total number of pdfs, and data
         handle for the temporary file.
@@ -550,22 +548,25 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The qp.ensemble to write to the temporary file
         start_idx : int
             The starting index of the block of images
-        num_pdfs : int
-            The number of pdfs in this block of images
         """
         print("Writing out this temporary ensemble to disk")
 
-        # create the temporary file path
-        file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
+        num_pdfs = qp_dstn.npdf
 
-        # write the qp.ensemble to the temporary file
-        tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
-        tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
-        tmp_handle.write()
-        tmp_handle.finalize_write()
+        if num_pdfs == 0:
+            return TempFileMeta(start_idx, None, 0, None)
+        else:
+            # create the temporary file path
+            file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
 
-        # use a TempFileMeta tuple to track this temporary file
-        return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
+            # write the qp.ensemble to the temporary file
+            tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
+            tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
+            tmp_handle.write()
+            tmp_handle.finalize_write()
+
+            # use a TempFileMeta tuple to track this temporary file
+            return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
 
     def _do_chunk_output(self, qp_dstn, start, end, first):
         """Function that adds a qp Ensemble to a given output file.
