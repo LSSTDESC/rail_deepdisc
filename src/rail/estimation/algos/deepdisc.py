@@ -33,6 +33,9 @@ from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 # temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
 TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
@@ -139,8 +142,6 @@ def train(config, all_metadata, train_head=True):
             # np.save(output_dir + run_name + "_val_losses", vallosses)
 
 
-
-
 class DeepDiscInformer(CatInformer):
     """Placeholder for informer stage class"""
 
@@ -215,7 +216,7 @@ class DeepDiscInformer(CatInformer):
             # add this chunk of metadata to the list of metadata
             self.metadata.extend(metadata_chunk)
 
-        dist_url = self._get_dist_url()
+        dist_url = _get_dist_url()
 
         print("Training head layers")
         train_head = True
@@ -256,14 +257,14 @@ class DeepDiscInformer(CatInformer):
         self.model = dict(nnmodel=weights)
         self.add_data("model", self.model)
 
-    def _get_dist_url(self):
-        port = (
-            2**15
-            + 2**14
-            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-        )
-        dist_url = "tcp://127.0.0.1:{}".format(port)
-        return dist_url
+def _get_dist_url():
+    port = (
+        2**15
+        + 2**14
+        + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+    )
+    dist_url = "tcp://127.0.0.1:{}".format(port)
+    return dist_url
 
 
 class DeepDiscPDFEstimator(CatEstimator):
@@ -444,7 +445,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
             self._process_chunk(start_idx, metadata)
 
-    def _process_chunk(self, start_idx, metadata):
+    def _process_chunk(self, start_idx, metadata, rank, size):
         """For a given block of images and metadata, calculate the PDFs and
         write them to a temporary file.
 
@@ -456,6 +457,36 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
+        q = mp.Queue()
+
+        launch(
+            self._do_inference,
+            num_gpus_per_machine=1, #! correct this to be a StageParam
+            num_machines=size, #! correct this to be a StageParam
+            machine_rank=rank, #? Need to figure out how to get this, maybe from the comm? or ceci???
+            dist_url = _get_dist_url(),
+            args=(
+                metadata,
+                q,
+                rank,
+                size,
+                start_idx
+            ),
+        )
+
+        temp_file_tuple = q.get()
+
+        # if nothing was written out, don't add the tuple to the list
+        if temp_file_tuple.total_pdfs:
+            self._temp_file_meta_tuples.append(q.get())
+
+
+    def _do_inference(self, metadata, q, rank, size, start_idx):
+        """This is the function that is called by the `launch` function and parallelized
+        across all available GPUs."""
+
+        group = dist.new_group()
+
         print("Matching objects")
         true_zs, pdfs = get_matched_z_pdfs(
             metadata,
@@ -466,25 +497,34 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         pdfs = np.array(pdfs)
         num_pdfs = len(pdfs)
 
-        # don't write out if no pdfs are returned from the model
-        if num_pdfs == 0:
-            print("No PDFs returned from the model, skipping this chunk")
-            return
+        if rank == 0:
+            pdfs_list = [torch.empty(1) for _ in range(size)]
+            dist.gather(pdfs, gather_list=pdfs_list, dst=0, group=group)
+            dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
 
-        # add this chunk of pdfs to a qp.ensemble
-        print("Adding PDFs to ensemble")
-        qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=pdfs))
-        print("Adding true Z to ensemble")
-        qp_dstn.set_ancil(dict(true_zs=true_zs))
+            #! Still need to `dist.gather` the `true_zs`.
+            #! The concern is that we might have a different order compared to the pdfs
 
-        # calculate point estimates and save them in ancil data
-        qp_dstn = self.calculate_point_estimates(qp_dstn)
+            # add this chunk of pdfs to a qp.ensemble
+            print("Adding PDFs to ensemble")
+            all_pdfs = torch.cat(pdfs_list, dim=0)
+            qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=all_pdfs))
+            
+            #! Still need to add the `gather`ed true_zs to the qp.ensemble
+            # print("Adding true Z to ensemble")
+            # qp_dstn.set_ancil(dict(true_zs=true_zs))
 
-        # write out the temp file and track it
-        self._temp_file_meta_tuples.append(
-            self._write_temp_file(qp_dstn, start_idx, num_pdfs)
-        )
+            # calculate point estimates and save them in ancil data
+            qp_dstn = self.calculate_point_estimates(qp_dstn)
 
+            # write out the temp file and track it
+            q.put(self._write_temp_file(qp_dstn, start_idx, num_pdfs))
+
+        else:
+            dist.gather(pdfs, gather_list=[], dst=0, group=group)
+
+
+    #! Will need to update this so that it is NOT a class method.
     def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
         """Write the qp.ensemble to a temporary file and return a named tuple
         that contains the start index, file name, total number of pdfs, and data
