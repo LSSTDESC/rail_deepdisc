@@ -21,7 +21,7 @@ from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
-from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper,
+from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper, RedshiftDictMapperEval,
                                     return_test_loader, return_train_loader)
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -370,7 +370,7 @@ def _do_inference(q, predictor, metadata, size, zgrid):
 
         print("Matching objects")
 
-        mapper = RedshiftDictMapper(
+        mapper = RedshiftDictMapperEval(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
