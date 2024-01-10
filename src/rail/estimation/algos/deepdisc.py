@@ -21,7 +21,8 @@ from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
-from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper,
+from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftDictMapperEval,
+                                    RedshiftFlatDictMapper,
                                     return_test_loader, return_train_loader)
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -370,7 +371,7 @@ def _do_inference(q, predictor, metadata, size, zgrid):
 
         print("Matching objects")
 
-        mapper = RedshiftDictMapper(
+        mapper = RedshiftDictMapperEval(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
@@ -387,16 +388,17 @@ def _do_inference(q, predictor, metadata, size, zgrid):
         num_pdfs = len(pdfs)
 
         if dist.get_rank() == 0:
-            pdfs_list = [torch.empty(1) for _ in range(size)]
-            dist.gather(pdfs, gather_list=pdfs_list, dst=0, group=group)
-            dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
+            pdfs_list = [np.full(1, np.nan) for _ in range(size)]
+            dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
+            # dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
 
             #! Still need to `dist.gather` the `true_zs`.
             #! The concern is that we might have a different order compared to the pdfs
 
             # add this chunk of pdfs to a qp.ensemble
             print("Adding PDFs to ensemble")
-            all_pdfs = torch.cat(pdfs_list, dim=0)
+            all_pdfs = np.concatenate(pdfs_list)
+            if all_pdfs.shape()
             qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
 
             #! Still need to add the `gather`ed true_zs to the qp.ensemble
@@ -407,7 +409,7 @@ def _do_inference(q, predictor, metadata, size, zgrid):
             q.put(qp_dstn)
 
         else:
-            dist.gather(pdfs, gather_list=[], dst=0, group=group)
+            dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
 
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
@@ -492,7 +494,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
-            self._process_chunk(start_idx, metadata, 0, 1)
+            self._process_chunk(start_idx, metadata, 0, 2)
 
     def _process_chunk(self, start_idx, metadata, rank, size):
         """For a given block of images and metadata, calculate the PDFs and
@@ -520,7 +522,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 q,
                 self.predictor,
                 metadata,
-                size,
+                size, #! needs to be local world size - ideally it would be programmatically deteremined
                 self.zgrid,
             ),
         )
