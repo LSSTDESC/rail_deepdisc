@@ -11,7 +11,7 @@ import numpy as np
 import qp
 from ceci.config import StageParameter as Param
 from ceci.stage import PipelineStage
-from deepdisc.data_format.augment_image import train_augs
+from deepdisc.data_format.augment_image import dc2_train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
 #                                                register_loaded_data_set)
@@ -47,7 +47,14 @@ def train(config, all_metadata, train_head=True):
     epoch = config["epoch"]
     head_epochs = config["head_epochs"]
     full_epochs = config["full_epochs"]
+    mile1 = config["mile1"]
+    mile2 = config["mile2"]
     training_percent = config["training_percent"]
+
+    e1 = epoch * head_epochs
+    e2 = epoch * mile1
+    e3 = epoch * mile2
+    efinal = epoch * full_epochs
 
 
     e1 = epoch * head_epochs
@@ -63,8 +70,8 @@ def train(config, all_metadata, train_head=True):
     train_slice = slice(split_index)
     eval_slice = slice(split_index, total_images)
 
-    mapper = RedshiftDictMapper(
-        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+    mapper = cfg.dataloader.train.mapper(
+        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
@@ -158,6 +165,8 @@ class DeepDiscInformer(CatInformer):
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
+        mile1=Param(int, 0, required=False, msg="Milestone 1 for param scheduler.  Number of epochs"),
+        mile2=Param(int, 0, required=False, msg="Milestone 2 for param scheduler.  Number of epochs"),        
         num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
@@ -286,7 +295,7 @@ class DeepDiscPDFEstimator(CatEstimator):
     inputs = [("model", ModelHandle),
               ("input", TableHandle),
               ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle),
+    outputs = [("output", QPHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
