@@ -369,7 +369,7 @@ def _do_inference(q, predictor, metadata, size, zgrid):
 
         group = dist.new_group()
 
-        print("Matching objects")
+        print(f"Matching objects - rank: {dist.get_rank()}")
 
         mapper = RedshiftDictMapperEval(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
@@ -384,11 +384,23 @@ def _do_inference(q, predictor, metadata, size, zgrid):
         # this batched version will break up the metadata across GPUs under the hood.
         true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
 
-        pdfs = np.array(pdfs)
+        #!!!!!!!!!!!!!!!!!
+        pdfs = np.linspace(0, 5, 200) #! DON'T LEAVE THIS HERE !!! 
+        #!!!!!!!!!!!!!!!!!
+    
+        print(f"Returned pdfs - rank: {dist.get_rank()}")
+        
+        print(f"pre-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
+
+        pdfs = np.array([pdfs])
+        print(f"post-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
         num_pdfs = len(pdfs)
 
         if dist.get_rank() == 0:
-            pdfs_list = [np.full(1, np.nan) for _ in range(size)]
+            print("0 - making output list")
+            pdfs_list = [None for _ in range(size)]
+            print(f"0 - pdfs_list: {pdfs_list}")
+            print("0 - calling gather_object")
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
             # dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
 
@@ -398,17 +410,28 @@ def _do_inference(q, predictor, metadata, size, zgrid):
             # add this chunk of pdfs to a qp.ensemble
             print("Adding PDFs to ensemble")
             all_pdfs = np.concatenate(pdfs_list)
-            if all_pdfs.shape()
-            qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
+            print("pdfs_list:")
+            print(pdfs_list)
+            print("All pdfs:") 
+            print(all_pdfs)
 
-            #! Still need to add the `gather`ed true_zs to the qp.ensemble
-            # print("Adding true Z to ensemble")
-            # qp_dstn.set_ancil(dict(true_zs=true_zs))
+            if len(all_pdfs):
+                print(f"Adding all_pdfs to qp.Ensemble. rank - {dist.get_rank()}")
+                qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
 
-            # write out the temp file and track it
-            q.put(qp_dstn)
+                #! Still need to add the `gather`ed true_zs to the qp.ensemble
+                # print("Adding true Z to ensemble")
+                # qp_dstn.set_ancil(dict(true_zs=true_zs))
+    
+                # write out the temp file and track it
+                print(f"Adding ensemble to the queue. rank - {dist.get_rank()}")
+                q.put(qp_dstn)
+            else:
+                print(f"Adding None to the queue. rank - {dist.get_rank()}")
+                q.put(None)
 
         else:
+            print("1 - calling gather_object")
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
 
 
@@ -529,11 +552,12 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
         # grab the output qp.Ensemble from the queue
         #! should guard this in case the queue is empty
+        print(f"Number of items in the queue: {q.qsize()}")
         qp_dstn = q.get()
 
         # if there are pdfs in the qp.ensemble, calculate point estimates and
         # write the qp.ensemble to a temporary file.
-        if qp_dstn.npdf:
+        if qp_dstn is not None and qp_dstn.npdf:
             qp_dstn = self.calculate_point_estimates(qp_dstn)
             temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
             self._temp_file_meta_tuples.append(temp_file_tuple)
