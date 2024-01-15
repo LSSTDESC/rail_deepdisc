@@ -69,6 +69,9 @@ def train(config, all_metadata, train_head=True):
     split_index = int(np.floor(total_images * training_percent))
     train_slice = slice(split_index)
     eval_slice = slice(split_index, total_images)
+    
+    cfg = LazyConfig.load(cfgfile)
+    cfg.OUTPUT_DIR = output_dir
 
     mapper = cfg.dataloader.train.mapper(
         DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
@@ -76,10 +79,6 @@ def train(config, all_metadata, train_head=True):
 
     training_loader = d2data.build_detection_train_loader(
         all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
-    )
-
-    eval_loader = d2data.build_detection_test_loader(
-        all_metadata[eval_slice], mapper=mapper, batch_size=batch_size
     )
     
     
@@ -100,6 +99,7 @@ def train(config, all_metadata, train_head=True):
         hookList = [schedulerHook, saveHook]
         print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
     else:
+        eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
         lossHook = return_evallosshook(val_per, model, eval_loader)
         hookList = [lossHook, schedulerHook, saveHook]
 
