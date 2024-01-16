@@ -443,7 +443,7 @@ def _do_inference(q, predictor, metadata, size, zgrid):
 '''       
                 
                 
-def _do_inference(q, predictor, metadata, size, zgrid):
+def _do_inference(q, predictor, metadata, size, zgrid, start_idx):
         """This is the function that is called by the `launch` function and parallelized
         across all available GPUs."""
 
@@ -465,24 +465,30 @@ def _do_inference(q, predictor, metadata, size, zgrid):
         true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
 
         #!!!!!!!!!!!!!!!!!
-        pdfs = np.linspace(0, 5, 200) #! DON'T LEAVE THIS HERE !!! 
+        #pdfs = np.linspace(0, 5, 200) * (start_idx+1) #! DON'T LEAVE THIS HERE !!! 
         #!!!!!!!!!!!!!!!!!
     
         print(f"Returned pdfs - rank: {dist.get_rank()}")
         
-        print(f"pre-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
+        #print(f"pre-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
 
-        pdfs = np.array([pdfs])
-        print(f"post-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
+        pdfs = np.array(pdfs)
+        true_zs = np.array(true_zs)
+        ids = np.array(ids)
+        print('shapes', true_zs.shape, pdfs.shape, ids.shape)
+
+        #print(f"post-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
         num_pdfs = len(pdfs)
 
         if dist.get_rank() == 0:
             print("0 - making output list")
             pdfs_list = [None for _ in range(size)]
-            print(f"0 - pdfs_list: {pdfs_list}")
-            print("0 - calling gather_object")
+            true_zs_list = [None for _ in range(size)]
+            ids_list = [None for _ in range(size)]
+
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
-            # dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
+            dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
+            dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
 
             #! Still need to `dist.gather` the `true_zs`.
             #! The concern is that we might have a different order compared to the pdfs
@@ -490,6 +496,9 @@ def _do_inference(q, predictor, metadata, size, zgrid):
             # add this chunk of pdfs to a qp.ensemble
             print("Adding PDFs to ensemble")
             all_pdfs = np.concatenate(pdfs_list)
+            all_true_zs = np.concatenate(true_zs_list)
+            all_ids = np.concatenate(ids_list)
+
             print("pdfs_list:")
             print(pdfs_list)
             print("All pdfs:") 
@@ -501,7 +510,10 @@ def _do_inference(q, predictor, metadata, size, zgrid):
 
                 #! Still need to add the `gather`ed true_zs to the qp.ensemble
                 # print("Adding true Z to ensemble")
-                # qp_dstn.set_ancil(dict(true_zs=true_zs))
+                
+                qp_dstn.set_ancil(dict(true_zs=all_true_zs))
+                qp_dstn.add_to_ancil(dict(ids=all_ids))
+
     
                 # write out the temp file and track it
                 print(f"Adding ensemble to the queue. rank - {dist.get_rank()}")
@@ -513,7 +525,8 @@ def _do_inference(q, predictor, metadata, size, zgrid):
         else:
             print("1 - calling gather_object")
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
-        
+            dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     """DeepDISC estimator"""
@@ -563,6 +576,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
+        # Keep this here!!! (necessary for some reason)
+        # Only needs to be set one time
+        mp.set_start_method('spawn')
+
         self.open_model(**self.config)
         
         cfg = LazyConfig.load(self.config.cfgfile)
@@ -610,12 +627,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         metadata : list[dict]
             The list of metadata dictionaries for this block of images
         """
-
-        # createa a queue to receive output from the parallelized function
-        #q = mp.SimpleQueue()
-        #ctx = mp.get_context("spawn")
-        #manager = ctx.Manager()  
-
+        
         q = mp.Queue()
         
         
@@ -632,6 +644,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 metadata,
                 size, #! needs to be local world size - ideally it would be programmatically deteremined
                 self.zgrid,
+                start_idx
             ),
         )
 
@@ -641,15 +654,11 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         
         
         qp_dstn = q.get()
-        print(qp_dstn.npdf)
-        #pdfs = q.get()
-        #print('PDFs')
-        #print(q.get())
 
         # if there are pdfs in the qp.ensemble, calculate point estimates and
         # write the qp.ensemble to a temporary file.
         if qp_dstn is not None and qp_dstn.npdf:
-            qp_dstn = self.calculate_point_estimates(qp_dstn)
+            #qp_dstn = self.calculate_point_estimates(qp_dstn)
             temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
             self._temp_file_meta_tuples.append(temp_file_tuple)
 
@@ -700,6 +709,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             Whether this is the first time writing to the output file, used to
             initialize the file.
         """
+        print('do_chunk inputs', qp_dstn.npdf, start, end, first)
         if first:
             self._output_handle = self.add_handle('output', data=qp_dstn)
             self._output_handle.initialize_write(self.total_pdfs, communicator=self.comm)
@@ -723,6 +733,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # open each temporary file, write it's contents to the final file.
         is_first = True
         previous_index = 0
+        print(self._temp_file_meta_tuples)
         for meta in self._temp_file_meta_tuples:
             tmp_handle = meta.file_handle
             qp_dstn = tmp_handle.read()
@@ -730,5 +741,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             previous_index += meta.total_pdfs
             is_first = False
 
+        self._output_handle.finalize_write()
+        
+            
         # call the super class to finalize any parallelization work happening
         PipelineStage.finalize(self)
