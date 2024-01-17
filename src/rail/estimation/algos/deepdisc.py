@@ -364,21 +364,17 @@ class DeepDiscPDFEstimator(CatEstimator):
         truth_dict = dict(redshift=self.true_zs)
         self.add_handle("truth", data=truth_dict)
 
-'''
-def _do_inference(q, predictor, metadata, size, zgrid):
-        """This is the function that is called by the `launch` function and parallelized
-        across all available GPUs."""
+
+def _do_inference(q, predictor, metadata, num_gpus, zgrid):
+        """This is the function that is called by `launch` to parallelize
+        inference across all available GPUs."""
 
         group = dist.new_group()
-
-        print(f"Matching objects - rank: {dist.get_rank()}")
 
         mapper = RedshiftDictMapperEval(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
-        #! Confirm that `build_detection_test_loader` is correct. The parent class
-        #! `build_batch_data_loader` might be better???
         loader = d2data.build_detection_test_loader(
             metadata, mapper=mapper, batch_size=1
         )
@@ -386,140 +382,37 @@ def _do_inference(q, predictor, metadata, size, zgrid):
         # this batched version will break up the metadata across GPUs under the hood.
         true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
 
-        #!!!!!!!!!!!!!!!!!
-        pdfs = np.linspace(0, 5, 200) #! DON'T LEAVE THIS HERE !!! 
-        #!!!!!!!!!!!!!!!!!
-    
-        print(f"Returned pdfs - rank: {dist.get_rank()}")
-        
-        print(f"pre-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
-
-        pdfs = np.array([pdfs])
-        print(f"post-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
-        
-        num_pdfs = len(pdfs)
-        
-        pdfs_list = [None for _ in range(size)]
-        
-        if dist.get_rank() == 0:
-            print("0 - making output list")
-            #pdfs_list = [None for _ in range(size)]
-            #print(f"0 - pdfs_list: {pdfs_list}")
-            print("0 - calling gather_object")
-            dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
-            # dist.reduce(torch.tensor(num_pdfs), dst=0, op=dist.ReduceOp.SUM, group=group)
-
-            #! Still need to `dist.gather` the `true_zs`.
-            #! The concern is that we might have a different order compared to the pdfs
-
-
-        else:
-            print("1 - calling gather_object")
-            dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
-            
-        if dist.get_rank() == 0:
-            # add this chunk of pdfs to a qp.ensemble
-            print("Adding PDFs to ensemble")
-            all_pdfs = np.concatenate(pdfs_list)
-            print("pdfs_list:")
-            print(pdfs_list)
-            print("All pdfs:") 
-            print(all_pdfs)
-
-            if len(all_pdfs):
-                print(f"Adding all_pdfs to qp.Ensemble. rank - {dist.get_rank()}")
-                qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
-
-                #! Still need to add the `gather`ed true_zs to the qp.ensemble
-                # print("Adding true Z to ensemble")
-                # qp_dstn.set_ancil(dict(true_zs=true_zs))
-
-                # write out the temp file and track it
-                print(f"Adding ensemble to the queue. rank - {dist.get_rank()}")
-                q.put(qp_dstn)
-            else:
-                print(f"Adding None to the queue. rank - {dist.get_rank()}")
-                q.put(None)
-'''       
-                
-                
-def _do_inference(q, predictor, metadata, size, zgrid, start_idx):
-        """This is the function that is called by the `launch` function and parallelized
-        across all available GPUs."""
-
-        group = dist.new_group()
-
-        print(f"Matching objects - rank: {dist.get_rank()}")
-
-        mapper = RedshiftDictMapperEval(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
-        ).map_data
-
-        #! Confirm that `build_detection_test_loader` is correct. The parent class
-        #! `build_batch_data_loader` might be better???
-        loader = d2data.build_detection_test_loader(
-            metadata, mapper=mapper, batch_size=1
-        )
-
-        # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
-
-        #!!!!!!!!!!!!!!!!!
-        #pdfs = np.linspace(0, 5, 200) * (start_idx+1) #! DON'T LEAVE THIS HERE !!! 
-        #!!!!!!!!!!!!!!!!!
-    
-        print(f"Returned pdfs - rank: {dist.get_rank()}")
-        
-        #print(f"pre-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
-
+        # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
         true_zs = np.array(true_zs)
         ids = np.array(ids)
-        print('shapes', true_zs.shape, pdfs.shape, ids.shape)
-
-        #print(f"post-cast pdfs type: {type(pdfs)}, pdfs value: {pdfs}, pdfs length: {len(pdfs)}")
-        num_pdfs = len(pdfs)
 
         if dist.get_rank() == 0:
-            print("0 - making output list")
-            pdfs_list = [None for _ in range(size)]
-            true_zs_list = [None for _ in range(size)]
-            ids_list = [None for _ in range(size)]
+            # Create temporary lists to hold the pdfs, true_zs, and ids from each process
+            pdfs_list = [None for _ in range(num_gpus)]
+            true_zs_list = [None for _ in range(num_gpus)]
+            ids_list = [None for _ in range(num_gpus)]
 
+            # gather the pdfs, true_zs, and ids from all the processes.
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
 
-            #! Still need to `dist.gather` the `true_zs`.
-            #! The concern is that we might have a different order compared to the pdfs
-
-            # add this chunk of pdfs to a qp.ensemble
-            print("Adding PDFs to ensemble")
+            # concatenate all the gathered outputs so they can be added to a qp.ensemble.
             all_pdfs = np.concatenate(pdfs_list)
             all_true_zs = np.concatenate(true_zs_list)
             all_ids = np.concatenate(ids_list)
 
-            print("pdfs_list:")
-            print(pdfs_list)
-            print("All pdfs:") 
-            print(all_pdfs)
-
             if len(all_pdfs):
-                print(f"Adding all_pdfs to qp.Ensemble. rank - {dist.get_rank()}")
+                # Add all the pdfs and ancil data to a qp.ensemble
                 qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
-
-                #! Still need to add the `gather`ed true_zs to the qp.ensemble
-                # print("Adding true Z to ensemble")
-                
                 qp_dstn.set_ancil(dict(true_zs=all_true_zs))
                 qp_dstn.add_to_ancil(dict(ids=all_ids))
 
-    
-                # write out the temp file and track it
-                print(f"Adding ensemble to the queue. rank - {dist.get_rank()}")
+                # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
             else:
-                print(f"Adding None to the queue. rank - {dist.get_rank()}")
+                # no pdfs found, adding `None` to the queue
                 q.put(None)
 
         else:
@@ -539,6 +432,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
         chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+        num_gpus=Param(int, 2, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs per machine."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
     )
@@ -614,9 +508,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
-            self._process_chunk(start_idx, metadata, 0, 2)
+            self._process_chunk(start_idx, metadata)
 
-    def _process_chunk(self, start_idx, metadata, rank, size):
+    def _process_chunk(self, start_idx, metadata):
         """For a given block of images and metadata, calculate the PDFs and
         write them to a temporary file.
 
@@ -627,40 +521,35 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         metadata : list[dict]
             The list of metadata dictionaries for this block of images
         """
-        
+
         q = mp.Queue()
-        
-        
+
         # call detectron2's `launch` function to parallelize the inference
         launch(
             _do_inference,
-            num_gpus_per_machine=2, #! correct this to be a StageParam
-            num_machines=1, #! correct this to be a StageParam
-            machine_rank=0, #? Need to figure out how to get this, maybe from the comm? or ceci???
-            dist_url = _get_dist_url(),
+            num_gpus_per_machine=self.config.num_gpus,
+            # num_machines=1 ??? I don't think we need this
+            # machine_rank=self.rank ??? I don't think we need this, I could be wrong
+            dist_url=_get_dist_url(),
             args=(
                 q,
                 self.predictor,
                 metadata,
-                size, #! needs to be local world size - ideally it would be programmatically deteremined
-                self.zgrid,
-                start_idx
+                self.config.num_gpus,
+                self.zgrid
             ),
         )
 
-        # grab the output qp.Ensemble from the queue
-        #! should guard this in case the queue is empty
-        print(f"Number of items in the queue: {q.qsize()}")
-        
-        
-        qp_dstn = q.get()
+        # Check the queue and grab the qp.ensemble if it's there
+        if q.qsize():
+            qp_dstn = q.get()
 
-        # if there are pdfs in the qp.ensemble, calculate point estimates and
-        # write the qp.ensemble to a temporary file.
-        if qp_dstn is not None and qp_dstn.npdf:
-            #qp_dstn = self.calculate_point_estimates(qp_dstn)
-            temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
-            self._temp_file_meta_tuples.append(temp_file_tuple)
+            # if there are pdfs in the qp.ensemble, calculate point estimates and
+            # write the qp.ensemble to a temporary file.
+            if qp_dstn is not None and qp_dstn.npdf:
+                qp_dstn = self.calculate_point_estimates(qp_dstn)
+                temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
+                self._temp_file_meta_tuples.append(temp_file_tuple)
 
 
     def _write_temp_file(self, qp_dstn, start_idx):
@@ -741,8 +630,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             previous_index += meta.total_pdfs
             is_first = False
 
+        # finalize the output file
         self._output_handle.finalize_write()
-        
-            
+
         # call the super class to finalize any parallelization work happening
         PipelineStage.finalize(self)
