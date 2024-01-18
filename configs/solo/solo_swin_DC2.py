@@ -49,7 +49,7 @@ model.pixel_std = [
 ]
 
 model.roi_heads.num_components = 1
-model.roi_heads.zloss_factor = 0.1
+model.roi_heads.zloss_factor = 1
 model.roi_heads._target_ = RedshiftPDFCasROIHeads
 model.proposal_generator.nms_thresh = 0.3
 
