@@ -163,7 +163,7 @@ class DeepDiscInformer(CatInformer):
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
-        num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
+        num_gpus=Param(int, 1, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
     )
@@ -171,6 +171,10 @@ class DeepDiscInformer(CatInformer):
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
+
+        # check to make sure that batch_size is an even multiple of num_gpus
+        if self.config.batch_size % self.config.num_gpus != 0:
+            raise ValueError(f"batch_size ({self.config.batch_size}) must be an even multiple of num_gpus ({self.config.num_gpus})")
 
     def inform(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
