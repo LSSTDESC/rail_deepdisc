@@ -367,7 +367,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 '''
 
-def _do_inference(q, predictor, metadata, num_gpus, zgrid):
+def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
@@ -378,7 +378,7 @@ def _do_inference(q, predictor, metadata, num_gpus, zgrid):
         ).map_data
 
         loader = d2data.build_detection_test_loader(
-            metadata, mapper=mapper, batch_size=1
+            metadata, mapper=mapper, batch_size=batch_size
         )
 
         # this batched version will break up the metadata across GPUs under the hood.
@@ -537,6 +537,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 self.predictor,
                 metadata,
                 self.config.num_gpus,
+                self.config.chunk_size,
                 self.zgrid
             ),
         )
