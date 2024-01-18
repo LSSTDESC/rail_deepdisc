@@ -367,7 +367,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 '''
 
-def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid):
+def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
@@ -382,7 +382,7 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid):
         )
 
         # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=True)
+        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
@@ -409,7 +409,8 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid):
                 # Add all the pdfs and ancil data to a qp.ensemble
                 qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
                 qp_dstn.set_ancil(dict(true_zs=all_true_zs))
-                qp_dstn.add_to_ancil(dict(ids=all_ids))
+                if return_ids_with_inference:
+                    qp_dstn.add_to_ancil(dict(ids=all_ids))
 
                 # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
@@ -436,6 +437,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         num_gpus=Param(int, 2, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs per machine."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+        return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
     )
 
     inputs = [("model", ModelHandle),
@@ -538,7 +540,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 metadata,
                 self.config.num_gpus,
                 self.config.batch_size,
-                self.zgrid
+                self.zgrid,
+                self.config.return_ids_with_inference,
             ),
         )
 
