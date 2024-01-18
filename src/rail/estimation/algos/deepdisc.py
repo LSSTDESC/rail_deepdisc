@@ -566,7 +566,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         start_idx : int
             The starting index of the block of images
         """
-        print("Writing out this temporary ensemble to disk")
 
         num_pdfs = qp_dstn.npdf
 
@@ -600,7 +599,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             Whether this is the first time writing to the output file, used to
             initialize the file.
         """
-        print('do_chunk inputs', qp_dstn.npdf, start, end, first)
         if first:
             self._output_handle = self.add_handle('output', data=qp_dstn)
             self._output_handle.initialize_write(self.total_pdfs, communicator=self.comm)
@@ -629,7 +627,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # open each temporary file, write it's contents to the final file.
         is_first = True
         previous_index = 0
-        print(self._temp_file_meta_tuples)
         for meta in self._temp_file_meta_tuples:
             tmp_handle = meta.file_handle
             qp_dstn = tmp_handle.read()
