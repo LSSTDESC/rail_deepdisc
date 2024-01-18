@@ -31,7 +31,7 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
 
 import torch
@@ -270,7 +270,9 @@ def _get_dist_url():
     dist_url = "tcp://127.0.0.1:{}".format(port)
     return dist_url
 
-
+'''
+# Commenting this out because we don't want to use JsonHandle for the metadata
+# and we don't want to read in the entire metadata file at once.
 class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
@@ -363,7 +365,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("output", data=qp_distn)
         truth_dict = dict(redshift=self.true_zs)
         self.add_handle("truth", data=truth_dict)
-
+'''
 
 def _do_inference(q, predictor, metadata, num_gpus, zgrid):
         """This is the function that is called by `launch` to parallelize
@@ -416,7 +418,6 @@ def _do_inference(q, predictor, metadata, num_gpus, zgrid):
                 q.put(None)
 
         else:
-            print("1 - calling gather_object")
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
@@ -630,8 +631,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             previous_index += meta.total_pdfs
             is_first = False
 
-        # finalize the output file
-        self._output_handle.finalize_write()
+        # given that there was something written to the output file, finalize it.
+        if len(self._temp_file_meta_tuples):
+            # finalize the output file
+            self._output_handle.finalize_write()
 
-        # call the super class to finalize any parallelization work happening
-        PipelineStage.finalize(self)
+            # call the super class to finalize any parallelization work happening
+            PipelineStage.finalize(self)
