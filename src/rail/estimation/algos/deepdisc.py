@@ -537,7 +537,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 self.predictor,
                 metadata,
                 self.config.num_gpus,
-                self.config.chunk_size,
+                self.config.batch_size,
                 self.zgrid
             ),
         )
