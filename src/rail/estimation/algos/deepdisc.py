@@ -612,6 +612,11 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         contents of each temporary file to the final output file.
         """
 
+        # if no temporary files were created, create an empty output file and return
+        if len(self._temp_file_meta_tuples) == 0:
+            self.add_handle('output', data=None)
+            return
+
         # sort self._temp_file_meta_tuples by start_idx
         self._temp_file_meta_tuples.sort(key=lambda x: x.start_idx)
 
@@ -631,10 +636,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             previous_index += meta.total_pdfs
             is_first = False
 
-        # given that there was something written to the output file, finalize it.
-        if len(self._temp_file_meta_tuples):
-            # finalize the output file
-            self._output_handle.finalize_write()
+        # finalize the output file
+        self._output_handle.finalize_write()
 
-            # call the super class to finalize any parallelization work happening
-            PipelineStage.finalize(self)
+        # call the super class to finalize any parallelization work happening
+        PipelineStage.finalize(self)
