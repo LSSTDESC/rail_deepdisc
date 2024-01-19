@@ -43,7 +43,6 @@ from torch.multiprocessing import Queue as TorchQueue
 TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
 
 
-
 def train(config, all_metadata, train_head=True):
     
     cfgfile = config["cfgfile"]
@@ -147,25 +146,31 @@ def train(config, all_metadata, train_head=True):
 
 
 class DeepDiscInformer(CatInformer):
-    """Placeholder for informer stage class"""
+    """This informer can parallelize model training with input data across
+    multiple GPUs.
+
+    The stage configuration parameter `batch_size` defines the number of images
+    to send to a GPU at a time while training the model.
+    """
 
     name = "DeepDiscInformer"
     config_options = CatInformer.config_options.copy()
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+
+        batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel training."),
+        chunk_size=Param(int, 100, required=False, msg="Number of images distributed to each node for training."), #??? [Drew] I'm pretty confident we don't need to define this.
         epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
-        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
-        head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
+        head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
+        machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         num_gpus=Param(int, 1, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
         num_machines=Param(int, 1, required=False, msg="The total number of machines."),
-        machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
+        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
@@ -438,20 +443,35 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
             dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
-    """DeepDISC estimator"""
+    """This estimator can distribute and parallelize processing of input data both
+    horizontally across nodes and vertically across GPUs on each node.
+
+    Initially this stage will break up the input data into set with size `chunk_size`.
+    Those data sets will be distributed across the available compute nodes.
+
+    Each compute node will have 1 or more associated GPUs to run inference on the
+    data. The data set on the node will be processed in parallel across the available
+    GPUs in subsets of size `batch_size`.
+
+    Because of the way the input data is distributed and then parallelized, generally
+    `chunk_size` >= `batch_size`.
+
+    The results of inference across all GPUs and nodes will be recombined and written
+    out to a single output file."""
 
     name = "DeepDiscPDFEstimatorWithChunking"
     config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
+
+        batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel processing."),
+        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+        chunk_size=Param(int, 100, required=False, msg="Number of images distributed to each node for processing."),
         num_gpus=Param(int, 2, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs per machine."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
     )
 
     inputs = [("model", ModelHandle),
