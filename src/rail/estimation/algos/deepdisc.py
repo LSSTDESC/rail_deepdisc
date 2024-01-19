@@ -158,7 +158,7 @@ class DeepDiscInformer(CatInformer):
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
 
-        batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel training."),
+        batch_size=Param(int, 1, required=False, msg="Number of images sent to all GPUs per node for parallel training.  Must be divisible by the number of GPUs per node"),
         chunk_size=Param(int, 100, required=False, msg="Number of images distributed to each node for training."), #??? [Drew] I'm pretty confident we don't need to define this.
         epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
