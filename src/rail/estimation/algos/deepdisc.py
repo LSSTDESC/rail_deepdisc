@@ -170,7 +170,7 @@ class DeepDiscInformer(CatInformer):
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
+        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets."),
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
