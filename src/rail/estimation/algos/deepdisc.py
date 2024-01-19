@@ -539,36 +539,37 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
-        q = mp.Queue()
+        with mp.Manager() as manager:
+            q = manager.Queue()
 
-        # call detectron2's `launch` function to parallelize the inference
-        launch(
-            _do_inference,
-            num_gpus_per_machine=self.config.num_gpus,
-            # num_machines=1 ??? I don't think we need this
-            # machine_rank=self.rank ??? I don't think we need this, I could be wrong
-            dist_url=_get_dist_url(),
-            args=(
-                q,
-                self.predictor,
-                metadata,
-                self.config.num_gpus,
-                self.config.batch_size,
-                self.zgrid,
-                self.config.return_ids_with_inference,
-            ),
-        )
+            # call detectron2's `launch` function to parallelize the inference
+            launch(
+                _do_inference,
+                num_gpus_per_machine=self.config.num_gpus,
+                # num_machines=1 ??? I don't think we need this
+                # machine_rank=self.rank ??? I don't think we need this, I could be wrong
+                dist_url=_get_dist_url(),
+                args=(
+                    q,
+                    self.predictor,
+                    metadata,
+                    self.config.num_gpus,
+                    self.config.batch_size,
+                    self.zgrid,
+                    self.config.return_ids_with_inference,
+                ),
+            )
 
-        # Check the queue and grab the qp.ensemble if it's there
-        if q.qsize():
-            qp_dstn = q.get()
+            # Check the queue and grab the qp.ensemble if it's there
+            if q.qsize():
+                qp_dstn = q.get()
 
-            # if there are pdfs in the qp.ensemble, calculate point estimates and
-            # write the qp.ensemble to a temporary file.
-            if qp_dstn is not None and qp_dstn.npdf:
-                qp_dstn = self.calculate_point_estimates(qp_dstn)
-                temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
-                self._temp_file_meta_tuples.append(temp_file_tuple)
+                # if there are pdfs in the qp.ensemble, calculate point estimates and
+                # write the qp.ensemble to a temporary file.
+                if qp_dstn is not None and qp_dstn.npdf:
+                    qp_dstn = self.calculate_point_estimates(qp_dstn)
+                    temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
+                    self._temp_file_meta_tuples.append(temp_file_tuple)
 
 
     def _write_temp_file(self, qp_dstn, start_idx):
