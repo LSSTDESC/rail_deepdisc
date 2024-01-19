@@ -539,7 +539,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
-        with mp.Mananger() as manager:
+        with mp.Manager() as manager:
             q = manager.Queue()
 
             # call detectron2's `launch` function to parallelize the inference
