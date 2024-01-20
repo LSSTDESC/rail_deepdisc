@@ -56,12 +56,6 @@ def train(config, all_metadata, train_head=True):
     e3 = epoch * mile2
     efinal = epoch * full_epochs
 
-
-    e1 = epoch * head_epochs
-    e2 = epoch * 10
-    e3 = epoch * 20
-    efinal = epoch * full_epochs
-
     val_per = epoch
 
     # Create slices for the input data
@@ -69,10 +63,12 @@ def train(config, all_metadata, train_head=True):
     split_index = int(np.floor(total_images * training_percent))
     train_slice = slice(split_index)
     eval_slice = slice(split_index, total_images)
+
     
+        
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
-
+    
     mapper = cfg.dataloader.train.mapper(
         DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
     ).map_data
@@ -81,31 +77,30 @@ def train(config, all_metadata, train_head=True):
         all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
     )
     
-    
-    cfg = LazyConfig.load(cfgfile)
-    cfg.OUTPUT_DIR = output_dir
 
     
     model = return_lazy_model(cfg, train_head)
-    cfg.optimizer.params.model = model
-    optimizer = solver.build_optimizer(cfg, model)
-
 
     saveHook = return_savehook(run_name)
-    schedulerHook = return_schedulerhook(optimizer)
 
-    if training_percent >= 1.0:
-        # don't do lossHook
-        hookList = [schedulerHook, saveHook]
-        print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
-    else:
-        eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
-        lossHook = return_evallosshook(val_per, model, eval_loader)
-        hookList = [lossHook, schedulerHook, saveHook]
 
     if train_head:
-
+        
+        cfg.optimizer.params.model = model
         cfg.SOLVER.MAX_ITER = e1  # for DefaultTrainer
+        
+        optimizer = solver.build_optimizer(cfg, model)
+        schedulerHook = return_schedulerhook(optimizer)
+        
+        if training_percent >= 1.0:
+            # don't do lossHook
+            hookList = [schedulerHook, saveHook]
+            print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+        else:
+            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            lossHook = return_evallosshook(val_per, model, eval_loader)
+            hookList = [lossHook, schedulerHook, saveHook]
+
 
         trainer = return_lazy_trainer(
             model, training_loader, optimizer, cfg, hookList
@@ -119,15 +114,24 @@ def train(config, all_metadata, train_head=True):
             np.save(output_dir + run_name + "_losses", trainer.lossList)
             # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
-
-
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
         cfg.SOLVER.BASE_LR = 0.0001
         cfg.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
         cfg.optimizer.lr = 0.0001
+        
+        optimizer = solver.build_optimizer(cfg, model)
+        schedulerHook = return_schedulerhook(optimizer)
 
+        if training_percent >= 1.0:
+            # don't do lossHook
+            hookList = [schedulerHook, saveHook]
+            print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+        else:
+            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            lossHook = return_evallosshook(val_per, model, eval_loader)
+            hookList = [lossHook, schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
             model, training_loader, optimizer, cfg, hookList
