@@ -11,7 +11,7 @@ import numpy as np
 import qp
 from ceci.config import StageParameter as Param
 from ceci.stage import PipelineStage
-from deepdisc.data_format.augment_image import train_augs
+from deepdisc.data_format.augment_image import dc2_train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
 #                                                register_loaded_data_set)
@@ -53,12 +53,13 @@ def train(config, all_metadata, train_head=True):
     epoch = config["epoch"]
     head_epochs = config["head_epochs"]
     full_epochs = config["full_epochs"]
+    mile1 = config["mile1"]
+    mile2 = config["mile2"]
     training_percent = config["training_percent"]
 
-
     e1 = epoch * head_epochs
-    e2 = epoch * 10
-    e3 = epoch * 20
+    e2 = epoch * mile1
+    e3 = epoch * mile2
     efinal = epoch * full_epochs
 
     val_per = epoch
@@ -69,42 +70,43 @@ def train(config, all_metadata, train_head=True):
     train_slice = slice(split_index)
     eval_slice = slice(split_index, total_images)
 
-    mapper = RedshiftDictMapper(
-        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+    
+        
+    cfg = LazyConfig.load(cfgfile)
+    cfg.OUTPUT_DIR = output_dir
+    
+    mapper = cfg.dataloader.train.mapper(
+        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
         all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
     )
-
-    eval_loader = d2data.build_detection_test_loader(
-        all_metadata[eval_slice], mapper=mapper, batch_size=batch_size
-    )
     
-    
-    cfg = LazyConfig.load(cfgfile)
-    cfg.OUTPUT_DIR = output_dir
 
     
     model = return_lazy_model(cfg, train_head)
-    cfg.optimizer.params.model = model
-    optimizer = solver.build_optimizer(cfg, model)
-
 
     saveHook = return_savehook(run_name)
-    schedulerHook = return_schedulerhook(optimizer)
 
-    if training_percent >= 1.0:
-        # don't do lossHook
-        hookList = [schedulerHook, saveHook]
-        print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
-    else:
-        lossHook = return_evallosshook(val_per, model, eval_loader)
-        hookList = [lossHook, schedulerHook, saveHook]
 
     if train_head:
-
+        
+        cfg.optimizer.params.model = model
         cfg.SOLVER.MAX_ITER = e1  # for DefaultTrainer
+        
+        optimizer = solver.build_optimizer(cfg, model)
+        schedulerHook = return_schedulerhook(optimizer)
+        
+        if training_percent >= 1.0:
+            # don't do lossHook
+            hookList = [schedulerHook, saveHook]
+            print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+        else:
+            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            lossHook = return_evallosshook(val_per, model, eval_loader)
+            hookList = [lossHook, schedulerHook, saveHook]
+
 
         trainer = return_lazy_trainer(
             model, training_loader, optimizer, cfg, hookList
@@ -115,10 +117,8 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(output_dir + run_name + "_losses", trainer.lossList)
+            np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
             # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
-
-
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -126,7 +126,18 @@ def train(config, all_metadata, train_head=True):
         cfg.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
 
         cfg.optimizer.lr = 0.0001
+        
+        optimizer = solver.build_optimizer(cfg, model)
+        schedulerHook = return_schedulerhook(optimizer)
 
+        if training_percent >= 1.0:
+            # don't do lossHook
+            hookList = [schedulerHook, saveHook]
+            print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
+        else:
+            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            lossHook = return_evallosshook(val_per, model, eval_loader)
+            hookList = [lossHook, schedulerHook, saveHook]
 
         trainer = return_lazy_trainer(
             model, training_loader, optimizer, cfg, hookList
@@ -136,9 +147,9 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, efinal)
 
         if comm.is_main_process():
-            losses = np.load(output_dir + run_name + "_losses.npy")
+            losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
-            np.save(output_dir + run_name + "_losses", losses)
+            np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
 
             # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
             # vallosses = np.concatenate((vallosses, trainer.vallossList))
@@ -161,6 +172,8 @@ class DeepDiscInformer(CatInformer):
         batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel training."),
         epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
+        mile1=Param(int, 0, required=False, msg="Milestone 1 for param scheduler.  Number of epochs"),
+        mile2=Param(int, 0, required=False, msg="Milestone 2 for param scheduler.  Number of epochs"),        
         head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
@@ -301,7 +314,7 @@ class DeepDiscPDFEstimator(CatEstimator):
     inputs = [("model", ModelHandle),
               ("input", TableHandle),
               ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle),
+    outputs = [("output", QPHandle)]
 
     def __init__(self, args, comm=None):
         """Constructor:
@@ -385,7 +398,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 '''
 
-def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference):
+def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference, return_bnds_with_inference):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
@@ -400,28 +413,33 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
         )
 
         # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference)
+        true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference, blendedness=return_bnds_with_inference)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
         true_zs = np.array(true_zs)
         ids = np.array(ids)
+        blendedness = np.array(blendedness)
 
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
             pdfs_list = [None for _ in range(num_gpus)]
             true_zs_list = [None for _ in range(num_gpus)]
             ids_list = [None for _ in range(num_gpus)]
+            blends_list = [None for _ in range(num_gpus)]
+
 
             # gather the pdfs, true_zs, and ids from all the processes.
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
+            dist.gather_object(blendedness, object_gather_list=blends_list, dst=0, group=group)
 
             # concatenate all the gathered outputs so they can be added to a qp.ensemble.
             all_pdfs = np.concatenate(pdfs_list)
             all_true_zs = np.concatenate(true_zs_list)
             all_ids = np.concatenate(ids_list)
+            blend_ids = np.concatenate(blends_list)
 
             if len(all_pdfs):
                 # Add all the pdfs and ancil data to a qp.ensemble
@@ -429,6 +447,10 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
                 qp_dstn.set_ancil(dict(true_zs=all_true_zs))
                 if return_ids_with_inference:
                     qp_dstn.add_to_ancil(dict(ids=all_ids))
+                    
+                if return_bnds_with_inference:
+                    qp_dstn.add_to_ancil(dict(blendedness=all_blends))
+
 
                 # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
@@ -440,6 +462,8 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(blendedness, object_gather_list=None, dst=0, group=group)
+
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     """This estimator can distribute and parallelize processing of input data both
@@ -462,7 +486,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-
         batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel processing."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
         chunk_size=Param(int, 100, required=False, msg="Number of images distributed to each node for processing."),
@@ -470,6 +493,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
         return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
+        return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
     )
 
@@ -508,7 +532,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
         # Keep this here!!! (necessary for some reason)
         # Only needs to be set one time
-        mp.set_start_method('spawn')
+        #mp.set_start_method('spawn')
 
         self.open_model(**self.config)
         
@@ -576,6 +600,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                     self.config.batch_size,
                     self.zgrid,
                     self.config.return_ids_with_inference,
+                    self.config.return_bnds_with_inference,
                 ),
             )
 
@@ -589,6 +614,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                     qp_dstn = self.calculate_point_estimates(qp_dstn)
                     temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
                     self._temp_file_meta_tuples.append(temp_file_tuple)
+
 
 
     def _write_temp_file(self, qp_dstn, start_idx):
