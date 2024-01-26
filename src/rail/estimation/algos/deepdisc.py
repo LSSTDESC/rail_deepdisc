@@ -33,15 +33,11 @@ from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
-<<<<<<< HEAD
-import torch
-=======
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.multiprocessing import Queue as TorchQueue
->>>>>>> main
 
 # temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
 TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
