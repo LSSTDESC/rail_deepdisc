@@ -50,10 +50,15 @@ model.pixel_std = [
         7.302009,
 ]
 
+<<<<<<< HEAD
 model.roi_heads.num_components = 3
 model.roi_heads.zloss_factor = 1
 #model.roi_heads.zbins = np.linspace(0,5,200)
 #model.roi_heads.weights = np.load('/home/g4merz/rail_deepdisc/configs/solo/zweights.npy')
+=======
+model.roi_heads.num_components = 1
+model.roi_heads.zloss_factor = 1
+>>>>>>> main
 model.roi_heads._target_ = RedshiftPDFCasROIHeads
 model.proposal_generator.nms_thresh = 0.3
 

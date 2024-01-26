@@ -15,12 +15,13 @@ from deepdisc.data_format.augment_image import dc2_train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 # from deepdisc.data_format.register_data import (register_data_set,
 #                                                register_loaded_data_set)
-from deepdisc.inference.match_objects import (get_matched_object_classes_new,
+from deepdisc.inference.match_objects import (run_batched_match_redshift,
+                                              get_matched_object_classes_new,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
-from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper,
+from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper, RedshiftDictMapperEval,
                                     return_test_loader, return_train_loader)
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -30,12 +31,21 @@ from detectron2.config import LazyConfig, get_cfg, instantiate, CfgNode
 from detectron2.engine import launch
 from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
-from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
+from rail.core.data import Hdf5Handle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
+<<<<<<< HEAD
 import torch
+=======
+
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.multiprocessing import Queue as TorchQueue
+>>>>>>> main
 
 # temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
 TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
+
 
 def train(config, all_metadata, train_head=True):
     
@@ -150,35 +160,42 @@ def train(config, all_metadata, train_head=True):
             # np.save(output_dir + run_name + "_val_losses", vallosses)
 
 
-
-
 class DeepDiscInformer(CatInformer):
-    """Placeholder for informer stage class"""
+    """This informer can parallelize model training with input data across
+    multiple GPUs.
+
+    The stage configuration parameter `batch_size` defines the number of images
+    to send to a GPU at a time while training the model.
+    """
 
     name = "DeepDiscInformer"
     config_options = CatInformer.config_options.copy()
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
+
+        batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel training."),
         epoch=Param(int, 20, required=False, msg="Number of iterations per epooch."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets"),
-        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
-        head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         full_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers and unfrozen backbone layers together."),
         mile1=Param(int, 0, required=False, msg="Milestone 1 for param scheduler.  Number of epochs"),
         mile2=Param(int, 0, required=False, msg="Milestone 2 for param scheduler.  Number of epochs"),        
-        num_gpus=Param(int, 4, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
-        num_machines=Param(int, 1, required=False, msg="The total number of machines."),
+        head_epochs=Param(int, 0, required=False, msg="How many iterations when training the head layers (while the backbone layers are frozen)."),
         machine_rank=Param(int, 0, required=False, msg="The rank of this machine."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        num_gpus=Param(int, 1, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs."),
+        num_machines=Param(int, 1, required=False, msg="The total number of machines."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
+        training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets."),
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
     def __init__(self, args, comm=None):
         CatInformer.__init__(self, args, comm=comm)
+
+        # check to make sure that batch_size is an even multiple of num_gpus
+        if self.config.batch_size % self.config.num_gpus != 0:
+            raise ValueError(f"batch_size ({self.config.batch_size}) must be an even multiple of num_gpus ({self.config.num_gpus})")
 
     def inform(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
@@ -228,7 +245,7 @@ class DeepDiscInformer(CatInformer):
             # add this chunk of metadata to the list of metadata
             self.metadata.extend(metadata_chunk)
 
-        dist_url = self._get_dist_url()
+        dist_url = _get_dist_url()
 
         print("Training head layers")
         train_head = True
@@ -269,16 +286,18 @@ class DeepDiscInformer(CatInformer):
         self.model = dict(nnmodel=weights)
         self.add_data("model", self.model)
 
-    def _get_dist_url(self):
-        port = (
-            2**15
-            + 2**14
-            + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
-        )
-        dist_url = "tcp://127.0.0.1:{}".format(port)
-        return dist_url
+def _get_dist_url():
+    port = (
+        2**15
+        + 2**14
+        + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
+    )
+    dist_url = "tcp://127.0.0.1:{}".format(port)
+    return dist_url
 
-
+'''
+# Commenting this out because we don't want to use JsonHandle for the metadata
+# and we don't want to read in the entire metadata file at once.
 class DeepDiscPDFEstimator(CatEstimator):
     """DeepDISC estimator"""
 
@@ -379,25 +398,96 @@ class DeepDiscPDFEstimator(CatEstimator):
             qp_dstn.add_to_ancil(dict(ids=self.matched_ids))
 
         self.add_handle("output", data=qp_distn)
+        truth_dict = dict(redshift=self.true_zs)
+        self.add_handle("truth", data=truth_dict)
+'''
 
+def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference):
+        """This is the function that is called by `launch` to parallelize
+        inference across all available GPUs."""
 
+        group = dist.new_group()
+
+        mapper = RedshiftDictMapperEval(
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+        ).map_data
+
+        loader = d2data.build_detection_test_loader(
+            metadata, mapper=mapper, batch_size=batch_size
+        )
+
+        # this batched version will break up the metadata across GPUs under the hood.
+        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference)
+
+        # convert the python lists into numpy arrays
+        pdfs = np.array(pdfs)
+        true_zs = np.array(true_zs)
+        ids = np.array(ids)
+
+        if dist.get_rank() == 0:
+            # Create temporary lists to hold the pdfs, true_zs, and ids from each process
+            pdfs_list = [None for _ in range(num_gpus)]
+            true_zs_list = [None for _ in range(num_gpus)]
+            ids_list = [None for _ in range(num_gpus)]
+
+            # gather the pdfs, true_zs, and ids from all the processes.
+            dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
+            dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
+            dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
+
+            # concatenate all the gathered outputs so they can be added to a qp.ensemble.
+            all_pdfs = np.concatenate(pdfs_list)
+            all_true_zs = np.concatenate(true_zs_list)
+            all_ids = np.concatenate(ids_list)
+
+            if len(all_pdfs):
+                # Add all the pdfs and ancil data to a qp.ensemble
+                qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
+                qp_dstn.set_ancil(dict(true_zs=all_true_zs))
+                if return_ids_with_inference:
+                    qp_dstn.add_to_ancil(dict(ids=all_ids))
+
+                # add the qp Ensemble to the queue so it can be picked up and written to disk.
+                q.put(qp_dstn)
+            else:
+                # no pdfs found, adding `None` to the queue
+                q.put(None)
+
+        else:
+            dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
-    """DeepDISC estimator"""
+    """This estimator can distribute and parallelize processing of input data both
+    horizontally across nodes and vertically across GPUs on each node.
+
+    Initially this stage will break up the input data into set with size `chunk_size`.
+    Those data sets will be distributed across the available compute nodes.
+
+    Each compute node will have 1 or more associated GPUs to run inference on the
+    data. The data set on the node will be processed in parallel across the available
+    GPUs in subsets of size `batch_size`.
+
+    Because of the way the input data is distributed and then parallelized, generally
+    `chunk_size` >= `batch_size`.
+
+    The results of inference across all GPUs and nodes will be recombined and written
+    out to a single output file."""
 
     name = "DeepDiscPDFEstimatorWithChunking"
     config_options = {}
     config_options.update(
         cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        batch_size=Param(int, 1, required=False, msg="Number of images sent to each GPU per node for parallel processing."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
-        include_ids=Param(bool, False, required=False, msg="Include object IDs in QP ensemble."),
-        include_bnds=Param(bool, False, required=False, msg="Include object blendedness in QP ensemble."),
-
+        chunk_size=Param(int, 100, required=False, msg="Number of images distributed to each node for processing."),
+        num_gpus=Param(int, 2, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs per machine."),
+        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
+        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
+        return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
+        return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
+        run_name=Param(str, "run", required=False, msg="Name of the training run."),
     )
 
     inputs = [("model", ModelHandle),
@@ -433,6 +523,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
         calculate and return PDFs for each galaxy using the trained flow
         """
+        # Keep this here!!! (necessary for some reason)
+        # Only needs to be set one time
+        mp.set_start_method('spawn')
+
         self.open_model(**self.config)
         
         cfg = LazyConfig.load(self.config.cfgfile)
@@ -481,49 +575,42 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
-        print("Matching objects")
+        with mp.Manager() as manager:
+            q = manager.Queue()
 
-        true_zs, pdfs, matched_ids, matched_bnds = get_matched_z_pdfs(
-            metadata,
-            DC2ImageReader(),
-            lambda dataset_dict: dataset_dict["filename"],
-            self.predictor,
-            self.config.include_ids,
-            self.config.include_bnds
-        )
+            # call detectron2's `launch` function to parallelize the inference
+            launch(
+                _do_inference,
+                num_gpus_per_machine=self.config.num_gpus,
+                # num_machines=1 ??? I don't think we need this
+                # machine_rank=self.rank ??? I don't think we need this, I could be wrong
+                dist_url=_get_dist_url(),
+                args=(
+                    q,
+                    self.predictor,
+                    metadata,
+                    self.config.num_gpus,
+                    self.config.batch_size,
+                    self.zgrid,
+                    self.config.return_ids_with_inference,
+                    self.config.return_bnds_with_inference,
+                ),
+            )
 
-        pdfs = np.array(pdfs)
-        num_pdfs = len(pdfs)
+            # Check the queue and grab the qp.ensemble if it's there
+            if q.qsize():
+                qp_dstn = q.get()
 
-        # don't write out if no pdfs are returned from the model
-        if num_pdfs == 0:
-            print("No PDFs returned from the model, skipping this chunk")
-            return
+                # if there are pdfs in the qp.ensemble, calculate point estimates and
+                # write the qp.ensemble to a temporary file.
+                if qp_dstn is not None and qp_dstn.npdf:
+                    qp_dstn = self.calculate_point_estimates(qp_dstn)
+                    temp_file_tuple = self._write_temp_file(qp_dstn, start_idx)
+                    self._temp_file_meta_tuples.append(temp_file_tuple)
 
-        # add this chunk of pdfs to a qp.ensemble
-        print("Adding PDFs to ensemble")
-        qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=pdfs))
 
-        # calculate point estimates and save them in ancil data
-        qp_dstn = self.calculate_point_estimates(qp_dstn)
-        
-        print("Adding true Z to ensemble")
-        qp_dstn.add_to_ancil(dict(true_zs=np.array(true_zs)))
 
-        if self.config.include_ids:
-            print("Adding object IDs to ensemble")
-            qp_dstn.add_to_ancil(dict(ids=np.array(matched_ids)))   
-            
-        if self.config.include_bnds:
-            print("Adding object IDs to ensemble")
-            qp_dstn.add_to_ancil(dict(blendedness=np.array(matched_bnds)))
-
-        # write out the temp file and track it
-        self._temp_file_meta_tuples.append(
-            self._write_temp_file(qp_dstn, start_idx, num_pdfs)
-        )
-
-    def _write_temp_file(self, qp_dstn, start_idx, num_pdfs):
+    def _write_temp_file(self, qp_dstn, start_idx):
         """Write the qp.ensemble to a temporary file and return a named tuple
         that contains the start index, file name, total number of pdfs, and data
         handle for the temporary file.
@@ -534,22 +621,24 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The qp.ensemble to write to the temporary file
         start_idx : int
             The starting index of the block of images
-        num_pdfs : int
-            The number of pdfs in this block of images
         """
-        print("Writing out this temporary ensemble to disk")
 
-        # create the temporary file path
-        file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
+        num_pdfs = qp_dstn.npdf
 
-        # write the qp.ensemble to the temporary file
-        tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
-        tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
-        tmp_handle.write()
-        tmp_handle.finalize_write()
+        if num_pdfs == 0:
+            return TempFileMeta(start_idx, None, 0, None)
+        else:
+            # create the temporary file path
+            file_path = os.path.join(self.temp_dir, f"pdfs_{start_idx}.hdf5")
 
-        # use a TempFileMeta tuple to track this temporary file
-        return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
+            # write the qp.ensemble to the temporary file
+            tmp_handle = QPHandle(tag=file_path, path=file_path, data=qp_dstn)
+            tmp_handle.initialize_write(data_length=num_pdfs, communicator=self.comm)
+            tmp_handle.write()
+            tmp_handle.finalize_write()
+
+            # use a TempFileMeta tuple to track this temporary file
+            return TempFileMeta(start_idx, file_path, num_pdfs, tmp_handle)
 
     def _do_chunk_output(self, qp_dstn, start, end, first):
         """Function that adds a qp Ensemble to a given output file.
@@ -578,6 +667,11 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         contents of each temporary file to the final output file.
         """
 
+        # if no temporary files were created, create an empty output file and return
+        if len(self._temp_file_meta_tuples) == 0:
+            self.add_handle('output', data=None)
+            return
+
         # sort self._temp_file_meta_tuples by start_idx
         self._temp_file_meta_tuples.sort(key=lambda x: x.start_idx)
 
@@ -595,6 +689,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             self._do_chunk_output(qp_dstn, previous_index, previous_index + meta.total_pdfs, is_first)
             previous_index += meta.total_pdfs
             is_first = False
+
+        # finalize the output file
+        self._output_handle.finalize_write()
 
         # call the super class to finalize any parallelization work happening
         PipelineStage.finalize(self)
