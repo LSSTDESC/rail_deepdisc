@@ -18,8 +18,8 @@ numclasses = len(metadata.classes)
 # Standard config (this has always been the LazyConfig/.py-style config)
 # ---------------------------------------------------------------------------- #
 # Get values from templates
-from ..COCO.cascade_mask_rcnn_swin_b_in21k_50ep import dataloader, model, train, lr_multiplier, optimizer
-from deepdisc.model.models import RedshiftPDFCasROIHeads
+from ..COCO.cascade_mask_rcnn_mvitv2_b_in21k_100ep import dataloader, model, train, lr_multiplier, optimizer
+from deepdisc.model.models import CNNRedshiftPDFCasROIHeads
 from deepdisc.model.loaders import RedshiftDictMapper
 
 
@@ -54,7 +54,7 @@ model.roi_heads.num_components = 3
 model.roi_heads.zloss_factor = 1
 #model.roi_heads.zbins = np.linspace(0,5,200)
 #model.roi_heads.weights = np.load('/home/g4merz/rail_deepdisc/configs/solo/zweights.npy')
-model.roi_heads._target_ = RedshiftPDFCasROIHeads
+model.roi_heads._target_ = CNNRedshiftPDFCasROIHeads
 model.proposal_generator.nms_thresh = 0.3
 
 for box_predictor in model.roi_heads.box_predictors:
@@ -62,7 +62,7 @@ for box_predictor in model.roi_heads.box_predictors:
     box_predictor.test_score_thresh = 0.5
     box_predictor.test_nms_thresh = 0.3
     
-train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_246a82.pkl"
+train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_8c3da3.pkl"
 
 optimizer.lr = 0.001
 dataloader.test.mapper = RedshiftDictMapper

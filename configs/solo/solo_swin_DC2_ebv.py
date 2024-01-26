@@ -3,7 +3,7 @@
 This uses template configs cascade_mask_rcnn_swin_b_in21k_50ep and yaml_style_defaults."""
 
 from omegaconf import OmegaConf
-import numpy as np
+
 # ---------------------------------------------------------------------------- #
 # Local variables and metadata
 # ---------------------------------------------------------------------------- #
@@ -32,7 +32,7 @@ model.roi_heads.batch_size_per_image = 512
 
 model.roi_heads.num_classes = numclasses
 model.roi_heads.batch_size_per_image = 512
-model.backbone.bottom_up.in_chans = 6
+model.backbone.bottom_up.in_chans = 7
 model.pixel_mean = [
         0.05381286,
         0.04986344,
@@ -40,6 +40,8 @@ model.pixel_mean = [
         0.10420945,
         0.14229655,
         0.21245764,
+        0.009384064,
+
 ]
 model.pixel_std = [
         2.9318833,
@@ -48,12 +50,11 @@ model.pixel_std = [
         3.5950038,
         4.5809164,
         7.302009,
+        0.000139502,
 ]
 
 model.roi_heads.num_components = 3
 model.roi_heads.zloss_factor = 1
-#model.roi_heads.zbins = np.linspace(0,5,200)
-#model.roi_heads.weights = np.load('/home/g4merz/rail_deepdisc/configs/solo/zweights.npy')
 model.roi_heads._target_ = RedshiftPDFCasROIHeads
 model.proposal_generator.nms_thresh = 0.3
 
@@ -67,7 +68,6 @@ train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final
 optimizer.lr = 0.001
 dataloader.test.mapper = RedshiftDictMapper
 dataloader.train.mapper = RedshiftDictMapper
-
 # ---------------------------------------------------------------------------- #
 # Yaml-style config (was formerly saved as a .yaml file, loaded to cfg_loader)
 # ---------------------------------------------------------------------------- #

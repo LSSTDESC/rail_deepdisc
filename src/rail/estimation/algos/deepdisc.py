@@ -32,7 +32,7 @@ from detectron2.engine.defaults import create_ddp_model
 from rail.core.common_params import SHARED_PARAMS
 from rail.core.data import Hdf5Handle, JsonHandle, ModelHandle, QPHandle, TableHandle
 from rail.estimation.estimator import CatEstimator, CatInformer
-
+import torch
 
 # temp file namedtuple for start_idx, file_name, total number of pdfs, and file handle
 TempFileMeta = namedtuple('TempFileMeta', ['start_idx', 'file_name', 'total_pdfs', 'file_handle'])
@@ -111,7 +111,7 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(output_dir + run_name + "_losses", trainer.lossList)
+            np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
             # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
     else:
@@ -141,9 +141,9 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, efinal)
 
         if comm.is_main_process():
-            losses = np.load(output_dir + run_name + "_losses.npy")
+            losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
-            np.save(output_dir + run_name + "_losses", losses)
+            np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
 
             # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
             # vallosses = np.concatenate((vallosses, trainer.vallossList))
@@ -396,6 +396,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
         include_ids=Param(bool, False, required=False, msg="Include object IDs in QP ensemble."),
+        include_bnds=Param(bool, False, required=False, msg="Include object blendedness in QP ensemble."),
 
     )
 
@@ -482,12 +483,13 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
 
         print("Matching objects")
 
-        true_zs, pdfs, matched_ids = get_matched_z_pdfs(
+        true_zs, pdfs, matched_ids, matched_bnds = get_matched_z_pdfs(
             metadata,
             DC2ImageReader(),
             lambda dataset_dict: dataset_dict["filename"],
             self.predictor,
-            self.config.include_ids
+            self.config.include_ids,
+            self.config.include_bnds
         )
 
         pdfs = np.array(pdfs)
@@ -511,6 +513,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         if self.config.include_ids:
             print("Adding object IDs to ensemble")
             qp_dstn.add_to_ancil(dict(ids=np.array(matched_ids)))   
+            
+        if self.config.include_bnds:
+            print("Adding object IDs to ensemble")
+            qp_dstn.add_to_ancil(dict(blendedness=np.array(matched_bnds)))
 
         # write out the temp file and track it
         self._temp_file_meta_tuples.append(
