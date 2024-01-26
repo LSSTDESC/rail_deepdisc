@@ -532,7 +532,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
         # Keep this here!!! (necessary for some reason)
         # Only needs to be set one time
-        mp.set_start_method('spawn')
+        #mp.set_start_method('spawn')
 
         self.open_model(**self.config)
         
