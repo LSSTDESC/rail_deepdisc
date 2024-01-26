@@ -398,7 +398,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 '''
 
-def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference):
+def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference, return_bnds_with_inference):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
@@ -413,28 +413,33 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
         )
 
         # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference)
+        true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference, blendedness=return_bnds_with_inference)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
         true_zs = np.array(true_zs)
         ids = np.array(ids)
+        blendedness = np.array(blendedness)
 
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
             pdfs_list = [None for _ in range(num_gpus)]
             true_zs_list = [None for _ in range(num_gpus)]
             ids_list = [None for _ in range(num_gpus)]
+            blends_list = [None for _ in range(num_gpus)]
+
 
             # gather the pdfs, true_zs, and ids from all the processes.
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
+            dist.gather_object(blendedness, object_gather_list=blends_list, dst=0, group=group)
 
             # concatenate all the gathered outputs so they can be added to a qp.ensemble.
             all_pdfs = np.concatenate(pdfs_list)
             all_true_zs = np.concatenate(true_zs_list)
             all_ids = np.concatenate(ids_list)
+            blend_ids = np.concatenate(blends_list)
 
             if len(all_pdfs):
                 # Add all the pdfs and ancil data to a qp.ensemble
@@ -442,6 +447,10 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
                 qp_dstn.set_ancil(dict(true_zs=all_true_zs))
                 if return_ids_with_inference:
                     qp_dstn.add_to_ancil(dict(ids=all_ids))
+                    
+                if return_bnds_with_inference:
+                    qp_dstn.add_to_ancil(dict(blendedness=all_blends))
+
 
                 # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
@@ -453,6 +462,8 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(blendedness, object_gather_list=None, dst=0, group=group)
+
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     """This estimator can distribute and parallelize processing of input data both
