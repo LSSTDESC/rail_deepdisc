@@ -653,7 +653,7 @@ class Sample(Ensemble):
         return fig_filename
 
     
-def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200)):
+def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]]):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -676,13 +676,12 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
     )
     
     gals = np.where(ztrue!=0)
-    modes= res.mode(np.linspace(0,5,200))
     
     ax_point = plt.subplot(gs[0:,1])
     
     
     if point_est == 'mode':
-        points = res.mode(np.linspace(0,5,200))
+        points = res.mode(zgrid)
     elif point_est == 'mean':
         points = res.mean()
 
@@ -694,14 +693,16 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
     label += f"\nOutlier Frac: {met[4]:.4f}"    
 
     
-    ax_point.hist2d(ztrue, points[:,0], 150, range=[[0,3.2],[0,3.2]], cmap='plasma', cmin=1e-3)
+    ax_point.hist2d(ztrue, points[:,0], 150, range=range, cmap='plasma', cmin=1e-3)
     #ax_point.set_position(ax.figbox)    
     #plt.gca().set_aspect('equal');
-    im = ax_point.plot([0,3.2],[0,3.2],color='black', label=label)
-    ax_point.set_xlabel('True Redshift' , fontsize=14)
-    ax_point.set_ylabel('Predicted Redshift', fontsize=14)
+    im = ax_point.plot(range[0],range[1],color='black', label=label)
+    #ax_point.set_xlabel('True Redshift' , fontsize=14)
+    #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
+    ax_point.set_xlabel('True Value' , fontsize=14)
+    ax_point.set_ylabel('Predicted Value', fontsize=14)
     
-    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True)
+    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
     
     plt.suptitle(code, fontsize=16)
     
@@ -869,3 +870,10 @@ def point_metrics(z, pred):
     out_frac = float(outlier)/float(len(z))
     
     return ez, pred_bias, smad, sigma_iqr, out_frac
+
+def make_rail_cat(filename,dcat,columns):
+    with h5py.File(filename,'w') as f:
+        grp = f.create_group("photometry")
+
+        for c in columns:
+            grp[c] = dcat[c].values
