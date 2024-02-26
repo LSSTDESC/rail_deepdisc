@@ -13,16 +13,13 @@ from ceci.config import StageParameter as Param
 from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import dc2_train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
-# from deepdisc.data_format.register_data import (register_data_set,
-#                                                register_loaded_data_set)
 from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_object_classes_new,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
-from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftDictMapperEval,
-                                    return_test_loader, return_train_loader)
+from deepdisc.model.loaders import return_test_loader, return_train_loader
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
                                         return_lazy_trainer, return_optimizer,
