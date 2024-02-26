@@ -21,7 +21,7 @@ from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
-from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftFlatDictMapper, RedshiftDictMapperEval,
+from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftDictMapperEval,
                                     return_test_loader, return_train_loader)
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -124,7 +124,8 @@ def train(config, all_metadata, train_head=True):
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
         cfg.SOLVER.BASE_LR = 0.0001
         cfg.SOLVER.MAX_ITER = efinal  # for DefaultTrainer
-
+        cfg.SOLVER.STEPS=[e2,e3]
+        
         cfg.optimizer.lr = 0.0001
         
         optimizer = solver.build_optimizer(cfg, model)
@@ -398,13 +399,23 @@ class DeepDiscPDFEstimator(CatEstimator):
         self.add_handle("truth", data=truth_dict)
 '''
 
-def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference, return_bnds_with_inference):
+def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference, return_bnds_with_inference,dist_url):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
-        group = dist.new_group()
-
-        mapper = RedshiftDictMapperEval(
+        #group = dist.new_group()
+        group=None
+        
+        if num_gpus==1:
+            dist.init_process_group(
+            backend="NCCL",
+            init_method=dist_url,
+            world_size=num_gpus,
+            rank=0,
+        )
+        
+        
+        mapper = cfg.dataloader.test.mapper(
             DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
         ).map_data
 
@@ -420,7 +431,10 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
         true_zs = np.array(true_zs)
         ids = np.array(ids)
         blendedness = np.array(blendedness)
-
+        
+        print(pdfs)
+        print()
+        
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
             pdfs_list = [None for _ in range(num_gpus)]
@@ -439,7 +453,7 @@ def _do_inference(q, predictor, metadata, num_gpus, batch_size, zgrid, return_id
             all_pdfs = np.concatenate(pdfs_list)
             all_true_zs = np.concatenate(true_zs_list)
             all_ids = np.concatenate(ids_list)
-            blend_ids = np.concatenate(blends_list)
+            all_blends = np.concatenate(blends_list)
 
             if len(all_pdfs):
                 # Add all the pdfs and ancil data to a qp.ensemble
@@ -515,8 +529,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
-            self.set_data("input", input_data)
-            self.set_data("metadata", input_metadata)
+            self.set_data("input", input_data,do_read=False)
+            self.set_data("metadata", input_metadata,do_read=False)
             self.run()
             self.finalize()
         return self.get_handle("output")
@@ -582,6 +596,9 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             The list of metadata dictionaries for this block of images
         """
 
+        cfg = LazyConfig.load(self.config.cfgfile)
+
+        
         with mp.Manager() as manager:
             q = manager.Queue()
 
@@ -594,6 +611,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 dist_url=_get_dist_url(),
                 args=(
                     q,
+                    cfg,
                     self.predictor,
                     metadata,
                     self.config.num_gpus,
@@ -601,6 +619,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                     self.zgrid,
                     self.config.return_ids_with_inference,
                     self.config.return_bnds_with_inference,
+                    _get_dist_url(),
                 ),
             )
 

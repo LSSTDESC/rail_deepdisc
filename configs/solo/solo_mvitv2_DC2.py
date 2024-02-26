@@ -19,8 +19,8 @@ numclasses = len(metadata.classes)
 # ---------------------------------------------------------------------------- #
 # Get values from templates
 from ..COCO.cascade_mask_rcnn_mvitv2_b_in21k_100ep import dataloader, model, train, lr_multiplier, optimizer
-from deepdisc.model.models import RedshiftPDFCasROIHeads
-from deepdisc.model.loaders import RedshiftDictMapper
+from deepdisc.model.models import RedshiftPDFCasROIHeads, OldRedshiftPDFCasROIHeads
+from deepdisc.model.loaders import RedshiftDictMapper, RedshiftDictMapperEval, GoldRedshiftDictMapperEval, GoldRedshiftDictMapper, WCSDictmapper
 
 
 # Overrides
@@ -33,30 +33,38 @@ model.roi_heads.batch_size_per_image = 512
 model.roi_heads.num_classes = numclasses
 model.roi_heads.batch_size_per_image = 512
 model.backbone.bottom_up.in_chans = 6
-model.pixel_mean = [
-        0.05381286,
-        0.04986344,
-        0.07526361,
-        0.10420945,
-        0.14229655,
-        0.21245764,
-]
-model.pixel_std = [
-        2.9318833,
-        1.8443471,
-        2.581817,
-        3.5950038,
-        4.5809164,
-        7.302009,
-]
+
+
+model.pixel_mean = [0.0602921, 0.05782207, 0.08498581, 0.11655838, 0.15833092, 0.23326524]
+model.pixel_std = [5.152609, 2.870776, 3.7411737, 5.0189743, 6.8171415, 11.383705]
+
+
+#model.pixel_mean = [
+#        0.05381286,
+#        0.04986344,
+#        0.07526361,
+#        0.10420945,
+#        0.14229655,
+#        0.21245764,
+#]
+#model.pixel_std = [
+#        2.9318833,
+#        1.8443471,
+#        2.581817,
+#        3.5950038,
+#        4.5809164,
+#        7.302009,
+#]
 
 model.roi_heads.num_components = 3
 model.roi_heads.zloss_factor = 1
 #model.roi_heads.zbins = np.linspace(0,5,200)
 #model.roi_heads.weights = np.load('/home/g4merz/rail_deepdisc/configs/solo/zweights.npy')
 model.roi_heads._target_ = RedshiftPDFCasROIHeads
-model.proposal_generator.nms_thresh = 0.3
 
+model.proposal_generator.pre_nms_topk=[10000,10000]
+model.proposal_generator.post_nms_topk=[6000,3000]
+model.proposal_generator.nms_thresh = 0.3
 for box_predictor in model.roi_heads.box_predictors:
     box_predictor.test_topk_per_image = 2000
     box_predictor.test_score_thresh = 0.5
@@ -65,7 +73,8 @@ for box_predictor in model.roi_heads.box_predictors:
 train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_8c3da3.pkl"
 
 optimizer.lr = 0.001
-dataloader.test.mapper = RedshiftDictMapper
+#dataloader.test.mapper = GoldRedshiftDictMapperEval
+dataloader.test.mapper = WCSDictmapper
 dataloader.train.mapper = RedshiftDictMapper
 
 # ---------------------------------------------------------------------------- #
