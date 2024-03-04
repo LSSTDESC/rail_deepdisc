@@ -12,6 +12,14 @@ from qp.ensemble import Ensemble
 from qp.metrics.pit import PIT
 
 
+def make_rail_cat(filename,dcat,columns):
+    with h5py.File(filename,'w') as f:
+        grp = f.create_group("photometry")
+
+        for c in columns:
+            grp[c] = dcat[c].values
+
+
 def read_pz_output(
     pdfs_file,
     ztrue_file,
@@ -653,7 +661,7 @@ class Sample(Ensemble):
         return fig_filename
 
     
-def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]]):
+def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -705,6 +713,52 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
     leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
     
     plt.suptitle(code, fontsize=16)
+    
+    if savefig:
+        plt.savefig(path)
+    
+
+def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+        
+    #pitobj = PIT(res, truth)
+    #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
+    
+    gs = gridspec.GridSpec(ncols=1, nrows=1, height_ratios=[1], width_ratios=[1],
+                          hspace=0.05,wspace=0.4)
+    
+    fig = plt.figure(figsize=[7, 7], constrained_layout=True)
+    
+    
+    ax_point = plt.subplot(gs[0])
+    
+    
+    if point_est == 'mode':
+        points = res.mode(zgrid)
+    elif point_est == 'mean':
+        points = res.mean()
+
+        
+    met = point_metrics(ztrue, points[:,0])
+    
+    label = f"Bias: {met[1]:.4f}"    
+    label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
+    label += f"\nOutlier Frac: {met[4]:.4f}"    
+
+    
+    ax_point.hist2d(ztrue, points[:,0], 150, range=range, cmap='plasma', cmin=1e-3)
+    #ax_point.set_position(ax.figbox)    
+    #plt.gca().set_aspect('equal');
+    im = ax_point.plot(range[0],range[1],color='black', label=label)
+    #ax_point.set_xlabel('True Redshift' , fontsize=14)
+    #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
+    ax_point.set_xlabel('True Value' , fontsize=14)
+    ax_point.set_ylabel('Predicted Value', fontsize=14)
+    
+    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
+    
+    if savefig:
+        plt.savefig(path)
+    
     
     
 def custom_plot_pit_qq(
