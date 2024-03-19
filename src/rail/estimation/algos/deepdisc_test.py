@@ -82,7 +82,7 @@ def train(config, all_metadata, train_head=True):
     
 
     
-    model = return_lazy_model(cfg, freeze=False)
+    model = return_lazy_model(cfg, freeze=train_head)
 
     saveHook = return_savehook(run_name)
 

@@ -18,8 +18,7 @@ from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_object_classes_new,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
-                                              get_matched_z_points_new
-                                             )
+                                              get_matched_z_points_new)
 from deepdisc.inference.predictors import return_predictor_transformer
 from deepdisc.model.loaders import return_test_loader, return_train_loader
 from deepdisc.model.models import return_lazy_model
@@ -70,12 +69,11 @@ def train(config, all_metadata, train_head=True):
     eval_slice = slice(split_index, total_images)
 
     
-        
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
     
     mapper = cfg.dataloader.train.mapper(
-        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
+        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
@@ -84,7 +82,7 @@ def train(config, all_metadata, train_head=True):
     
 
     
-    model = return_lazy_model(cfg, freeze=False)
+    model = return_lazy_model(cfg, freeze=train_head)
 
     saveHook = return_savehook(run_name)
 
@@ -117,7 +115,8 @@ def train(config, all_metadata, train_head=True):
 
         if comm.is_main_process():
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
-            # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+            if training_percent>=1.0:
+                np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -150,10 +149,10 @@ def train(config, all_metadata, train_head=True):
             losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
-
-            # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
-            # vallosses = np.concatenate((vallosses, trainer.vallossList))
-            # np.save(output_dir + run_name + "_val_losses", vallosses)
+            if training_percent>=1.0:
+                vallosses = np.load(output_dir + run_name + "_val_losses.npy")
+                vallosses = np.concatenate((vallosses, trainer.vallossList))
+                np.save(output_dir + run_name + "_val_losses", vallosses)
 
 
 class DeepDiscInformer(CatInformer):
@@ -257,7 +256,7 @@ class DeepDiscInformer(CatInformer):
                 train_head,
             ),
         )
-
+        '''
         print("Training full model")
         train_head = False
         launch(
@@ -272,7 +271,7 @@ class DeepDiscInformer(CatInformer):
                 train_head,
             ),
         )
-
+        '''
         cfg = LazyConfig.load(self.config.cfgfile)
         model = instantiate(cfg.model)
         weights_file_path = os.path.join(self.config.output_dir, self.config.run_name + ".pth")
@@ -317,6 +316,8 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
         ras = np.array(ras)
         decs = np.array(decs)
         
+        print(ras.shape)
+        print(decs.shape)
 
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
@@ -382,9 +383,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         #return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
         #return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        channel_means=Param(list, [0.04945376, 0.0491688, 0.07448275, 0.1044548, 0.13814972, 0.20608978], required=False, msg="per channel pixel mean"),
-        channel_stds=Param(list, [5.944584, 1.6761326, 2.0371788, 2.6784716, 3.7474108, 8.534793], required=False, msg="per channel pixel std")
-
     )
 
     inputs = [("model", ModelHandle),
@@ -425,7 +423,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # Only needs to be set one time
         #mp.set_start_method('spawn')
 
-        self.open_model(**self.config)
+        #self.open_model(**self.config)
         
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
@@ -484,8 +482,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         """
 
         cfg = LazyConfig.load(self.config.cfgfile)
-        cfg.model.pixel_mean = self.config.channel_means
-        cfg.model.pixel_std = self.config.channel_stds
+
         
         with mp.Manager() as manager:
             q = manager.Queue()
