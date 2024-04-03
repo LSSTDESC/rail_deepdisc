@@ -73,7 +73,7 @@ def train(config, all_metadata, train_head=True):
     cfg.OUTPUT_DIR = output_dir
     
     mapper = cfg.dataloader.train.mapper(
-        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
+        cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
@@ -82,7 +82,7 @@ def train(config, all_metadata, train_head=True):
     
 
     
-    model = return_lazy_model(cfg, freeze=train_head)
+    model = return_lazy_model(cfg, freeze=True)
 
     saveHook = return_savehook(run_name)
 
@@ -115,7 +115,7 @@ def train(config, all_metadata, train_head=True):
 
         if comm.is_main_process():
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
-            if training_percent>=1.0:
+            if training_percent<1.0:
                 np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
     else:
@@ -149,7 +149,7 @@ def train(config, all_metadata, train_head=True):
             losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
-            if training_percent>=1.0:
+            if training_percent<1.0:
                 vallosses = np.load(output_dir + run_name + "_val_losses.npy")
                 vallosses = np.concatenate((vallosses, trainer.vallossList))
                 np.save(output_dir + run_name + "_val_losses", vallosses)
@@ -257,7 +257,8 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        print("Training full model")
+        #print("Training full model")
+        print("Training head layers")
         train_head = False
         launch(
             train,

@@ -23,6 +23,7 @@ from deepdisc.model.models import RedshiftPDFCasROIHeads, OldRedshiftPDFCasROIHe
 from deepdisc.model.loaders import (RedshiftDictMapper, RedshiftDictMapperEval, 
 GoldRedshiftDictMapperEval, GoldRedshiftDictMapper, WCSDictmapper, MagRedshiftDictMapper, MagRedshiftDictMapperNlim)
 from deepdisc.data_format.augment_image import dc2_train_augs, dc2_train_augs_full
+from deepdisc.data_format.image_readers import DC2ImageReader
 
 # Overrides
 dataloader.augs = dc2_train_augs
@@ -65,6 +66,9 @@ train.init_checkpoint = "/home/g4merz/DC2/model_tests/MViTv2_baseline.pth"
 optimizer.lr = 0.001
 dataloader.test.mapper = WCSDictmapper
 dataloader.train.mapper = MagRedshiftDictMapperNlim
+
+reader = DC2ImageReader()
+dataloader.imagereader = reader
 
 # ---------------------------------------------------------------------------- #
 # Yaml-style config (was formerly saved as a .yaml file, loaded to cfg_loader)
