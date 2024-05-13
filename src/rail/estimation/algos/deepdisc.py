@@ -58,8 +58,11 @@ def train(config, all_metadata, train_head=True):
     e1 = epoch * head_epochs
     e2 = epoch * mile1
     e3 = epoch * mile2
-    efinal = epoch * full_epochs
+    #efinal = epoch * full_epochs
+    
+    efinal = int(epoch * (full_epochs+head_epochs))
 
+    
     val_per = epoch
 
     # Create slices for the input data
@@ -84,7 +87,7 @@ def train(config, all_metadata, train_head=True):
     
     model = return_lazy_model(cfg, freeze=False)
 
-    saveHook = return_savehook(run_name)
+    saveHook = return_savehook(run_name, epoch)
 
 
     if train_head:
@@ -143,7 +146,7 @@ def train(config, all_metadata, train_head=True):
         )
 
         trainer.set_period(print_frequency)
-        trainer.train(0, efinal)
+        trainer.train(e1, efinal)
 
         if comm.is_main_process():
             losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
