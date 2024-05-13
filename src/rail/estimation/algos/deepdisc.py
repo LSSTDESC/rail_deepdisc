@@ -14,6 +14,7 @@ from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import dc2_train_augs
 from deepdisc.data_format.image_readers import DC2ImageReader
 from deepdisc.inference.match_objects import (run_batched_match_redshift,
+                                              run_batched_get_object_coords,
                                               get_matched_object_classes_new,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
@@ -68,12 +69,11 @@ def train(config, all_metadata, train_head=True):
     eval_slice = slice(split_index, total_images)
 
     
-        
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
     
     mapper = cfg.dataloader.train.mapper(
-        DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"], dc2_train_augs
+        cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
@@ -82,7 +82,7 @@ def train(config, all_metadata, train_head=True):
     
 
     
-    model = return_lazy_model(cfg, train_head)
+    model = return_lazy_model(cfg, freeze=False)
 
     saveHook = return_savehook(run_name)
 
@@ -115,7 +115,8 @@ def train(config, all_metadata, train_head=True):
 
         if comm.is_main_process():
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
-            # np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+            if training_percent<1.0:
+                np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -148,10 +149,10 @@ def train(config, all_metadata, train_head=True):
             losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
             losses = np.concatenate((losses, trainer.lossList))
             np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
-
-            # vallosses = np.load(output_dir + run_name + "_val_losses.npy")
-            # vallosses = np.concatenate((vallosses, trainer.vallossList))
-            # np.save(output_dir + run_name + "_val_losses", vallosses)
+            if training_percent<1.0:
+                vallosses = np.load(output_dir + run_name + "_val_losses.npy")
+                vallosses = np.concatenate((vallosses, trainer.vallossList))
+                np.save(output_dir + run_name + "_val_losses", vallosses)
 
 
 class DeepDiscInformer(CatInformer):
@@ -194,8 +195,8 @@ class DeepDiscInformer(CatInformer):
     def inform(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
-            self.set_data("input", input_data)
-            self.set_data("metadata", input_metadata)
+            self.set_data("input", input_data,do_read=False)
+            self.set_data("metadata", input_metadata,do_read=False)
             self.run()
             self.finalize()
         return self.get_handle("model")
@@ -256,7 +257,8 @@ class DeepDiscInformer(CatInformer):
             ),
         )
 
-        print("Training full model")
+        #print("Training full model")
+        print("Training head layers")
         train_head = False
         launch(
             train,
@@ -289,127 +291,12 @@ def _get_dist_url():
     dist_url = "tcp://127.0.0.1:{}".format(port)
     return dist_url
 
-'''
-# Commenting this out because we don't want to use JsonHandle for the metadata
-# and we don't want to read in the entire metadata file at once.
-class DeepDiscPDFEstimator(CatEstimator):
-    """DeepDISC estimator"""
-
-    name = "DeepDiscPDFEstimator"
-    config_options = {}
-    config_options.update(
-        cfgfile=Param(str, None, required=True, msg="The primary configuration file for the deepdisc models."),
-        batch_size=Param(int, 1, required=False, msg="Batch size of data to load."),
-        output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        run_name=Param(str, "run", required=False, msg="Name of the training run."),
-        chunk_size=Param(int, 100, required=False, msg="Chunk size used within detectron2 code."),
-        num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
-        calculated_point_estimates=Param(list, ['mode'], required=False, msg="The point estimates to include by default."),
-        include_ids=Param(bool, False, required=False, msg="Include object IDs in QP ensemble."),
-
-    )
-
-    inputs = [("model", ModelHandle),
-              ("input", TableHandle),
-              ("metadata", JsonHandle)]
-    outputs = [("output", QPHandle)]
-
-    def __init__(self, args, comm=None):
-        """Constructor:
-        Do Estimator specific initialization"""
-        self.nnmodel = None
-        CatEstimator.__init__(self, args, comm=comm)
-
-    def estimate(self, input_data, input_metadata):
-        with tempfile.TemporaryDirectory() as temp_directory_name:
-            self.temp_dir = temp_directory_name
-            self.set_data("input", input_data)
-            self.set_data("metadata", input_metadata)
-            self.run()
-            self.finalize()
-        return self.get_handle("output")
-
-    def open_model(self, **kwargs):
-        CatEstimator.open_model(self, **kwargs)
-        if self.model is not None:
-            self.nnmodel = self.model["nnmodel"]
-
-    def run(self):
-        """
-        calculate and return PDFs for each galaxy using the trained flow
-        """
-        self.open_model(**self.config)
-        metadata = self.get_data("metadata")
-
-        print("Caching data")
-        flattened_image_iterator = self.input_iterator("input")
-        for start_idx, _, images in flattened_image_iterator:
-            for image_idx, image in enumerate(images["images"]):
-                image_metadata = metadata[start_idx + image_idx]
-                image_height = image_metadata["height"]
-                image_width = image_metadata["width"]
-
-                reformed_image = image.reshape(
-                    self.config.num_camera_filters, image_height, image_width
-                ).astype(np.float32)
-
-                filename = f"image_{start_idx + image_idx}.npy"
-                file_path = os.path.join(self.temp_dir, filename)
-                np.save(file_path, reformed_image)
-                image_metadata["filename"] = file_path
-
-        cfgfile = self.config.cfgfile
-        output_dir = self.config.output_dir
-
-        cfg = LazyConfig.load(cfgfile)
-        cfg.OUTPUT_DIR = output_dir
-
-        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
-
-        print("Matching objects")
-        true_zs, pdfs, matched_ids = get_matched_z_pdfs(
-            metadata,
-            DC2ImageReader(),
-            lambda dataset_dict: dataset_dict["filename"],
-            self.predictor,
-            self.config.include_ids
-
-        )
-        self.true_zs = np.array(true_zs)
-        self.pdfs = np.array(pdfs)
-        if self.include_ids:
-            self.matched_ids = np.array(matched_ids)
-
-    def finalize(self):
-        self.zgrid = np.linspace(0, 5, 200)
-
-        zmode = np.array([self.zgrid[np.argmax(pdf)] for pdf in self.pdfs]).flatten()
-        qp_distn = qp.Ensemble(qp.interp, data=dict(xvals=self.zgrid, yvals=self.pdfs))
-        qp_distn.set_ancil(dict(zmode=zmode))
-        qp_distn = self.calculate_point_estimates(qp_distn)
-        qp_dstn.add_to_ancil(dict(true_zs=self.true_zs))
-        if self.include_ids:
-            qp_dstn.add_to_ancil(dict(ids=self.matched_ids))
-
-        self.add_handle("output", data=qp_distn)
-        truth_dict = dict(redshift=self.true_zs)
-        self.add_handle("truth", data=truth_dict)
-'''
-
-def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, return_ids_with_inference, return_bnds_with_inference,dist_url):
+def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
         #group = dist.new_group()
         group=None
-        
-        if num_gpus==1:
-            dist.init_process_group(
-            backend="NCCL",
-            init_method=dist_url,
-            world_size=num_gpus,
-            rank=0,
-        )
         
         
         mapper = cfg.dataloader.test.mapper(
@@ -421,47 +308,47 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, retu
         )
 
         # this batched version will break up the metadata across GPUs under the hood.
-        true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=return_ids_with_inference, blendedness=return_bnds_with_inference)
+        #true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=True, blendedness=True)
+        pdfs, ras, decs, classes, gmms = run_batched_get_object_coords(loader, predictor, gmm=True)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
-        true_zs = np.array(true_zs)
-        ids = np.array(ids)
-        blendedness = np.array(blendedness)
-        
-        print(pdfs)
-        print()
-        
+        ras = np.array(ras)
+        decs = np.array(decs)
+        classes = np.array(classes)
+        gmms = np.array(gmms)
+
+
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
             pdfs_list = [None for _ in range(num_gpus)]
-            true_zs_list = [None for _ in range(num_gpus)]
-            ids_list = [None for _ in range(num_gpus)]
-            blends_list = [None for _ in range(num_gpus)]
+            ras_list = [None for _ in range(num_gpus)]
+            decs_list = [None for _ in range(num_gpus)]
+            classes_list = [None for _ in range(num_gpus)]
+            gmms_list = [None for _ in range(num_gpus)]
 
 
             # gather the pdfs, true_zs, and ids from all the processes.
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
-            dist.gather_object(true_zs, object_gather_list=true_zs_list, dst=0, group=group)
-            dist.gather_object(ids, object_gather_list=ids_list, dst=0, group=group)
-            dist.gather_object(blendedness, object_gather_list=blends_list, dst=0, group=group)
+            dist.gather_object(ras, object_gather_list=ras_list, dst=0, group=group)
+            dist.gather_object(decs, object_gather_list=decs_list, dst=0, group=group)
+            dist.gather_object(classes, object_gather_list=classes_list, dst=0, group=group)
+            dist.gather_object(gmms, object_gather_list=gmms_list, dst=0, group=group)
 
             # concatenate all the gathered outputs so they can be added to a qp.ensemble.
             all_pdfs = np.concatenate(pdfs_list)
-            all_true_zs = np.concatenate(true_zs_list)
-            all_ids = np.concatenate(ids_list)
-            all_blends = np.concatenate(blends_list)
+            all_ras = np.concatenate(ras_list)
+            all_decs = np.concatenate(decs_list)
+            all_classes = np.concatenate(classes_list)
+            all_gmms = np.concatenate(gmms_list)
 
             if len(all_pdfs):
                 # Add all the pdfs and ancil data to a qp.ensemble
                 qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
-                qp_dstn.set_ancil(dict(true_zs=all_true_zs))
-                if return_ids_with_inference:
-                    qp_dstn.add_to_ancil(dict(ids=all_ids))
-                    
-                if return_bnds_with_inference:
-                    qp_dstn.add_to_ancil(dict(blendedness=all_blends))
-
+                qp_dstn.set_ancil(dict(ra=all_ras))
+                qp_dstn.add_to_ancil(dict(dec=all_decs))
+                qp_dstn.add_to_ancil(dict(oclass=all_classes))
+                qp_dstn.add_to_ancil(dict(gmm=all_gmms))
 
                 # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
@@ -471,9 +358,10 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, retu
 
         else:
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
-            dist.gather_object(true_zs, object_gather_list=None, dst=0, group=group)
-            dist.gather_object(ids, object_gather_list=None, dst=0, group=group)
-            dist.gather_object(blendedness, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(ras, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(decs, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(classes, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(gmms, object_gather_list=None, dst=0, group=group)
 
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
@@ -503,8 +391,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         num_gpus=Param(int, 2, required=False, msg="Number of processes per machine. When using GPUs, this should be the number of GPUs per machine."),
         num_camera_filters=Param(int, 6, required=False, msg="The number of camera filters for the dataset used (LSST has 6)."),
         output_dir=Param(str, "./", required=False, msg="The directory to write output to."),
-        return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
-        return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
+        #return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
+        #return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
     )
 
@@ -519,15 +407,16 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
 
         self.nnmodel = None
-        self.zgrid = np.linspace(0, 5, 200)
+        self.zgrid = np.linspace(self.config.zmin, self.config.zmax, self.config.nzbins)
         self._output_handle = None
         self._temp_file_meta_tuples = []
 
     def estimate(self, input_data, input_metadata):
+        print('setting data')
+        self.set_data("input", input_data, do_read=False)
+        self.set_data("metadata", input_metadata, do_read=False)
         with tempfile.TemporaryDirectory() as temp_directory_name:
             self.temp_dir = temp_directory_name
-            self.set_data("input", input_data,do_read=False)
-            self.set_data("metadata", input_metadata,do_read=False)
             self.run()
             self.finalize()
         return self.get_handle("output")
@@ -549,12 +438,22 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
-
+        
+        
         self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
+        
+        if self.config.num_gpus==1:
+            dist.init_process_group(
+            backend="NCCL",
+            init_method=_get_dist_url(),
+            world_size=1,
+            rank=0,
+        )
 
         print("Caching data")
+
         for image_chunk, json_chunk in zip(flattened_image_iterator, metadata_iterator):
             start_idx, end_idx, images = image_chunk
             _, _, metadata_json_dicts = json_chunk
@@ -567,7 +466,6 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                 image_metadata = metadata[image_idx]
                 image_height = image_metadata["height"]
                 image_width = image_metadata["width"]
-
                 reformed_image = image.reshape(
                     self.config.num_camera_filters, image_height, image_width
                 ).astype(np.float32)
@@ -580,6 +478,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             # process this chunk of data
             print(f"Processing chunk (start:end) - ({start_idx}:{end_idx})")
             self._process_chunk(start_idx, metadata)
+            
 
     def _process_chunk(self, start_idx, metadata):
         """For a given block of images and metadata, calculate the PDFs and
@@ -614,8 +513,8 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
                     self.config.num_gpus,
                     self.config.batch_size,
                     self.zgrid,
-                    self.config.return_ids_with_inference,
-                    self.config.return_bnds_with_inference,
+                    #self.config.return_ids_with_inference,
+                    #self.config.return_bnds_with_inference,
                     _get_dist_url(),
                 ),
             )

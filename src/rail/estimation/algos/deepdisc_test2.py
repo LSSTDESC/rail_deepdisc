@@ -309,37 +309,46 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
 
         # this batched version will break up the metadata across GPUs under the hood.
         #true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=True, blendedness=True)
-        pdfs, ras, decs = run_batched_get_object_coords(loader, predictor)
+        pdfs, ras, decs, classes, gmms = run_batched_get_object_coords(loader, predictor, gmm=True)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
         ras = np.array(ras)
         decs = np.array(decs)
-        
-        print(ras.shape)
-        print(decs.shape)
+        classes = np.array(classes)
+        gmms = np.array(gmms)
+
 
         if dist.get_rank() == 0:
             # Create temporary lists to hold the pdfs, true_zs, and ids from each process
             pdfs_list = [None for _ in range(num_gpus)]
             ras_list = [None for _ in range(num_gpus)]
             decs_list = [None for _ in range(num_gpus)]
+            classes_list = [None for _ in range(num_gpus)]
+            gmms_list = [None for _ in range(num_gpus)]
+
 
             # gather the pdfs, true_zs, and ids from all the processes.
             dist.gather_object(pdfs, object_gather_list=pdfs_list, dst=0, group=group)
             dist.gather_object(ras, object_gather_list=ras_list, dst=0, group=group)
             dist.gather_object(decs, object_gather_list=decs_list, dst=0, group=group)
+            dist.gather_object(classes, object_gather_list=classes_list, dst=0, group=group)
+            dist.gather_object(gmms, object_gather_list=gmms_list, dst=0, group=group)
 
             # concatenate all the gathered outputs so they can be added to a qp.ensemble.
             all_pdfs = np.concatenate(pdfs_list)
             all_ras = np.concatenate(ras_list)
             all_decs = np.concatenate(decs_list)
-            
+            all_classes = np.concatenate(classes_list)
+            all_gmms = np.concatenate(gmms_list)
+
             if len(all_pdfs):
                 # Add all the pdfs and ancil data to a qp.ensemble
                 qp_dstn = qp.Ensemble(qp.interp, data=dict(xvals=zgrid, yvals=all_pdfs))
                 qp_dstn.set_ancil(dict(ra=all_ras))
                 qp_dstn.add_to_ancil(dict(dec=all_decs))
+                qp_dstn.add_to_ancil(dict(oclass=all_classes))
+                qp_dstn.add_to_ancil(dict(gmm=all_gmms))
 
                 # add the qp Ensemble to the queue so it can be picked up and written to disk.
                 q.put(qp_dstn)
@@ -351,6 +360,8 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
             dist.gather_object(pdfs, object_gather_list=None, dst=0, group=group)
             dist.gather_object(ras, object_gather_list=None, dst=0, group=group)
             dist.gather_object(decs, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(classes, object_gather_list=None, dst=0, group=group)
+            dist.gather_object(gmms, object_gather_list=None, dst=0, group=group)
 
 
 class DeepDiscPDFEstimatorWithChunking(CatEstimator):
@@ -396,7 +407,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
 
         self.nnmodel = None
-        self.zgrid = np.linspace(0, 3, 300)
+        self.zgrid = np.linspace(self.config.zmin, self.config.zmax, self.config.nzbins)
         self._output_handle = None
         self._temp_file_meta_tuples = []
 
@@ -423,7 +434,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         # Only needs to be set one time
         #mp.set_start_method('spawn')
 
-        #self.open_model(**self.config)
+        self.open_model(**self.config)
         
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir

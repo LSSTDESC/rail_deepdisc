@@ -82,7 +82,7 @@ def train(config, all_metadata, train_head=True):
     
 
     
-    model = return_lazy_model(cfg, freeze=True)
+    model = return_lazy_model(cfg, freeze=False)
 
     saveHook = return_savehook(run_name)
 
@@ -384,6 +384,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         #return_ids_with_inference=Param(bool, False, required=False, msg="Whether to return the ids with the results of inference."),
         #return_bnds_with_inference=Param(bool, False, required=False, msg="Whether to return the object blendedness with the results of inference."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
+        zmin=Param(int, 0, required=True, msg="Minimum z for zgrid"),
+        zmax=Param(int, 3.0, required=True, msg="Maximum z for zgrid"),
+        zn=Param(int, 300, required=True, msg="Number of points in zgrid"),
+
     )
 
     inputs = [("model", ModelHandle),
@@ -397,7 +401,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         CatEstimator.__init__(self, args, comm=comm)
 
         self.nnmodel = None
-        self.zgrid = np.linspace(0, 3, 300)
+        self.zgrid = np.linspace(self.config.zmin, self.config.zmax, self.config.zn)
         self._output_handle = None
         self._temp_file_meta_tuples = []
 

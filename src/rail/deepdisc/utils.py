@@ -10,6 +10,7 @@ from matplotlib import gridspec
 from qp import interp
 from qp.ensemble import Ensemble
 from qp.metrics.pit import PIT
+import matplotlib.colors as colors
 
 
 def make_rail_cat(filename,dcat,columns):
@@ -661,7 +662,7 @@ class Sample(Ensemble):
         return fig_filename
 
     
-def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+def plot_metrics(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -671,9 +672,10 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
     
     fig = plt.figure(figsize=[10, 5], constrained_layout=True)
    
-    pdfs = res.objdata()["yvals"]
+    #pdfs = res.objdata()["yvals"]
+    
     gs, _ = custom_plot_pit_qq(
-        pdfs,
+        ens,
         zgrid,
         ztrue,
         gs,
@@ -687,6 +689,102 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
     
     ax_point = plt.subplot(gs[0:,1])
     
+    if point_est == 'mode':
+        points = ens.mode(zgrid)
+    elif point_est == 'mean':
+        points = ens.mean()
+
+        
+    met = point_metrics(ztrue, points[:,0])
+    
+    threesig = 3.0*met[3]
+    cutcriterion = np.maximum(0.06,threesig)
+    mask= (np.fabs(met[0])>cutcriterion)
+    
+    ztmax = rnge[0][1]
+    zpmax1 = cutcriterion * (1+ztmax) + ztmax
+    zpmax2 = -cutcriterion * (1+ztmax) + ztmax
+    
+    df = pd.DataFrame(np.array([ztrue,points[:,0]]).T, columns=['ztrue','zmode'])
+    
+    label = f"Bias: {met[1]:.4f}"    
+    label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
+    label += f"\nOutlier Frac: {met[4]:.4f}"    
+
+    
+    h= sns.histplot(
+        data=df, x="ztrue", y="zmode", fill=True,  norm=colors.LogNorm(), 
+        vmin=None, vmax=None, cmap='plasma', cbar=True, bins=300, binwidth=0.01, 
+        alpha=1.0, kde=True
+    )
+    #ax_point.set_position(ax.figbox)    
+    #plt.gca().set_aspect('equal');
+    im = ax_point.plot(rnge[0],rnge[1],color='black', label=label, linestyle='--', linewidth=1.5)
+    ax_point.plot(rnge[0],[cutcriterion,zpmax1],color='black', linestyle='-', linewidth=1.5)
+    ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
+    #ax_point.set_xlabel('True Redshift' , fontsize=14)
+    #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
+    ax_point.set_xlabel('True Redshift' , fontsize=14)
+    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=14)
+    #plt.colorbar(h[3],ax=ax_point)
+    
+    ax_point.set_aspect('equal')
+    
+    ax_point.set_xlim(rnge[0][0],rnge[0][1])
+    ax_point.set_ylim(rnge[1][0],rnge[1][1])
+
+    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
+    
+    plt.suptitle(code, fontsize=16)
+    
+    if savefig:
+        plt.savefig(path)
+        
+        
+        
+def plot_PIT(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+        
+    #pitobj = PIT(res, truth)
+    #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
+    
+    gs = gridspec.GridSpec(ncols=1, nrows=2, height_ratios=[3,1], width_ratios=[1],
+                          hspace=0.05,wspace=0.4)
+    
+    fig = plt.figure(figsize=[5, 7], constrained_layout=True)
+   
+    #pdfs = res.objdata()["yvals"]
+    
+    gs, _ = custom_plot_pit_qq(
+        ens,
+        zgrid,
+        ztrue,
+        gs,
+        title="",
+        code=code,
+        pit_out_rate=None,
+        #savefig=True,
+    )
+    
+    gals = np.where(ztrue!=0)
+    
+    plt.suptitle(code, fontsize=16)
+    
+    if savefig:
+        plt.savefig(path)
+    
+
+def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+        
+    #pitobj = PIT(res, truth)
+    #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
+    
+    gs = gridspec.GridSpec(ncols=1, nrows=1, height_ratios=[1], width_ratios=[1])#, hspace=0.05,wspace=0.4)
+    
+    fig = plt.figure(figsize=[7, 7], constrained_layout=True)
+    
+    
+    ax_point = plt.subplot(gs[0])
+    
     
     if point_est == 'mode':
         points = res.mode(zgrid)
@@ -696,29 +794,53 @@ def plot_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
         
     met = point_metrics(ztrue, points[:,0])
     
+    threesig = 3.0*met[3]
+    cutcriterion = np.maximum(0.06,threesig)
+    mask= (np.fabs(met[0])>cutcriterion)
+    
+    ztmax = rnge[0][1]
+    zpmax1 = cutcriterion * (1+ztmax) + ztmax
+    zpmax2 = -cutcriterion * (1+ztmax) + ztmax
+    
+    df = pd.DataFrame(np.array([ztrue,points[:,0]]).T, columns=['ztrue','zmode'])
+    
     label = f"Bias: {met[1]:.4f}"    
     label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
     label += f"\nOutlier Frac: {met[4]:.4f}"    
 
     
-    ax_point.hist2d(ztrue, points[:,0], 150, range=range, cmap='plasma', cmin=1e-3)
+    h= sns.histplot(
+        data=df, x="ztrue", y="zmode", fill=True,  norm=colors.LogNorm(), 
+        vmin=None, vmax=None, cmap='plasma', cbar=True, bins=300, binwidth=0.01, 
+        alpha=1.0, kde=True
+    )
     #ax_point.set_position(ax.figbox)    
     #plt.gca().set_aspect('equal');
-    im = ax_point.plot(range[0],range[1],color='black', label=label)
+    im = ax_point.plot(rnge[0],rnge[1],color='black', label=label, linestyle='--', linewidth=1.5)
+    ax_point.plot(rnge[0],[cutcriterion,zpmax1],color='black', linestyle='-', linewidth=1.5)
+    ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
     #ax_point.set_xlabel('True Redshift' , fontsize=14)
     #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
-    ax_point.set_xlabel('True Value' , fontsize=14)
-    ax_point.set_ylabel('Predicted Value', fontsize=14)
+    ax_point.set_xlabel('True Redshift' , fontsize=14)
+    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=14)
+    #plt.colorbar(h[3],ax=ax_point)
     
+    ax_point.set_aspect('equal')
+
     leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
     
-    plt.suptitle(code, fontsize=16)
+    #plt.suptitle(code, fontsize=16)
+    
+    plt.xlim(rnge[0][0],rnge[0][1])
+    plt.ylim(rnge[1][0],rnge[1][1])
+
     
     if savefig:
-        plt.savefig(path)
-    
-
-def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), range=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+        plt.savefig(path,bbox_inches='tight')
+        
+        
+        
+def plot_point_metrics_fancy(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.1],[0,3.1]], savefig=False, path='./plot'):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -740,21 +862,43 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
         
     met = point_metrics(ztrue, points[:,0])
     
+    threesig = 3.0*met[3]
+    cutcriterion = np.maximum(0.06,threesig)
+    mask= (np.fabs(met[0])>cutcriterion)
+    
+    ztmax = rnge[0][1]
+    zpmax1 = cutcriterion * (1+ztmax) + ztmax
+    zpmax2 = -cutcriterion * (1+ztmax) + ztmax
+    
+    df = pd.DataFrame(np.array([ztrue,points]).T, columns=['ztrue','zmode'])
+
+    
     label = f"Bias: {met[1]:.4f}"    
     label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
     label += f"\nOutlier Frac: {met[4]:.4f}"    
 
     
-    ax_point.hist2d(ztrue, points[:,0], 150, range=range, cmap='plasma', cmin=1e-3)
-    #ax_point.set_position(ax.figbox)    
-    #plt.gca().set_aspect('equal');
-    im = ax_point.plot(range[0],range[1],color='black', label=label)
-    #ax_point.set_xlabel('True Redshift' , fontsize=14)
-    #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
-    ax_point.set_xlabel('True Value' , fontsize=14)
-    ax_point.set_ylabel('Predicted Value', fontsize=14)
+    ax_point.scatter(ztrue,zmode,color=sns.color_palette("flare_r").as_hex()[0],s=0.01,marker='.',alpha=0.5)
+    
+    h= sns.kdeplot(data=df[~mask], x="ztrue", y="zmode", fill=True, cmap='flare_r', cbar=True, gridsize=300, thresh=0.02, levels=20)
+    
+    
+    im = ax_point.plot(rnge[0],rnge[1],color='black', label=label)
+    ax_point.plot([0,3.1],[cutcriterion,zpmax1],color='black', linestyle='--')
+    ax_point.plot([0,3.1],[-cutcriterion,zpmax2],color='black', linestyle='--')
+    
+    ax_point.set_xlabel('True Redshift' , fontsize=14)
+    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=14)
+    
+    #plt.colorbar(h[3],ax=ax_point)
+    
+    ax_point.set_xlim(0,3.1)
+    ax_point.set_ylim(0,3.1)
     
     leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
+    
+    plt.suptitle(code, fontsize=16)
+
     
     if savefig:
         plt.savefig(path)
@@ -762,7 +906,7 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
     
     
 def custom_plot_pit_qq(
-    pdfs,
+    ens,
     zgrid,
     ztrue,
     gs,
@@ -819,20 +963,30 @@ def custom_plot_pit_qq(
     #plt.figure(figsize=[4, 5])
     #gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1])
     ax0 = plt.subplot(gs[0,0])
-    sample = Sample(pdfs, zgrid, ztrue)
+    
+    #sample = Sample(pdfs, zgrid, ztrue)
 
+    pitobj = PIT(ens,ztrue)
+    pit_vals = np.array(pitobj.pit_samps)
+    q_theory = np.linspace(0.0, 1.0, 100)
+    q_data = np.quantile(pit_vals, q_theory)
+    qq = (q_theory, q_data)
+
+    
     if show_qq:
         ax0.plot(
-            sample.qq[0], sample.qq[1], c="r", linestyle="-", linewidth=3, label=label)
+            qq[0], qq[1], c="r", linestyle="-", linewidth=3, label=label)
         ax0.plot([0, 1], [0, 1], color="k", linestyle="--", linewidth=2)
         ax0.set_ylabel("Q$_{data}$", fontsize=18)
         plt.ylim(-0.001, 1.001)
+        ax0.tick_params(axis='y', labelsize=14)   
+
     plt.xlim(-0.001, 1.001)
     plt.title(title)
     if show_pit:
-        fzdata = Ensemble(interp, data=dict(xvals=zgrid, yvals=pdfs))
-        pitobj = PIT(fzdata, ztrue)
-        pit_vals = np.array(pitobj.pit_samps)
+        #fzdata = Ensemble(interp, data=dict(xvals=zgrid, yvals=pdfs))
+        #pitobj = PIT(fzdata, ztrue)
+        #pit_vals = np.array(pitobj.pit_samps)
         pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
 
         try:
@@ -848,17 +1002,21 @@ def custom_plot_pit_qq(
             )  # -0.001, 1.001)
         else:
             ax1 = ax0.twinx()
-            ax1.hist(pit_vals, bins=bins, alpha=0.7)
+            ax1.hist(pit_vals, bins=bins, alpha=0.7, color='dimgray')
             #ax1.set_ylabel("Number")
             ax1.hlines(y_uni, xmin=0, xmax=1, color="k")
+            ax1.set_xticklabels([])
+    
+        ax1.tick_params(axis='y', labelsize=14)   
+    
     #leg = ax0.legend(handlelength=0, handletextpad=0, fancybox=True)
     #for item in leg.legendHandles:
     #    item.set_visible(False)
     if show_qq:
         ax2 = plt.subplot(gs[1,0])
         ax2.plot(
-            sample.qq[0],
-            (sample.qq[1] - sample.qq[0]),
+            qq[0],
+            (qq[1] - qq[0]),
             c="r",
             linestyle="-",
             linewidth=3,
@@ -867,9 +1025,12 @@ def custom_plot_pit_qq(
         ax2.plot([0, 1], [0, 0], color="k", linestyle="--", linewidth=2)
         plt.xlim(-0.001, 1.001)
         plt.ylim(
-            np.min([-0.12, np.min(sample.qq[1] - sample.qq[0]) * 1.05]),
-            np.max([0.12, np.max(sample.qq[1] - sample.qq[0]) * 1.05]),
+            np.min([-0.12, np.min(qq[1] - qq[0]) * 1.05]),
+            np.max([0.12, np.max(qq[1] - qq[0]) * 1.05]),
         )
+        ax2.tick_params(axis='x', labelsize=14)   
+        ax2.tick_params(axis='y', labelsize=14)   
+
     if show_pit:
         if show_qq:
             plt.xlabel("Q$_{theory}$ / PIT Value", fontsize=18)

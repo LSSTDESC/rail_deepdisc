@@ -41,6 +41,8 @@ model.backbone.bottom_up.in_chans = 6
 model.pixel_mean = [0.05485338, 0.05625433, 0.08389594, 0.11460936, 0.15186928, 0.22200608]
 model.pixel_std =[2.7777975, 2.009476, 2.780979, 3.7311685, 4.749582, 7.093875 ]
 
+model.backbone.square_pad = 1100
+
 model.roi_heads.num_components = 5
 model.roi_heads.zloss_factor = 1
 #model.roi_heads.zbins = np.linspace(0,3,300)
@@ -60,8 +62,8 @@ for box_predictor in model.roi_heads.box_predictors:
     box_predictor.test_nms_thresh = 0.5
     
 
-#train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_8c3da3.pkl"
-train.init_checkpoint = "/home/g4merz/DC2/model_tests/MViTv2_baseline.pth"
+train.init_checkpoint = "/home/shared/hsc/detectron2/projects/ViTDet/model_final_8c3da3.pkl"
+#train.init_checkpoint = "/home/g4merz/DC2/model_tests/MViTv2_baseline.pth"
 
 optimizer.lr = 0.001
 dataloader.test.mapper = WCSDictmapper
