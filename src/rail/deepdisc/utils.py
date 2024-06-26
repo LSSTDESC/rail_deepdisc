@@ -767,10 +767,10 @@ def plot_PIT(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200
     
     gals = np.where(ztrue!=0)
     
-    plt.suptitle(code, fontsize=16)
+    #plt.suptitle(code, fontsize=16)
     
     if savefig:
-        plt.savefig(path)
+        plt.savefig(path, bbox_inches='tight')
     
 
 def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
@@ -806,7 +806,7 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
     
     label = f"Bias: {met[1]:.4f}"    
     label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
-    label += f"\nOutlier Frac: {met[4]:.4f}"    
+    label += f"\n $\eta$: {met[4]:.4f}"    
 
     
     h= sns.histplot(
@@ -814,6 +814,8 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
         vmin=None, vmax=None, cmap='plasma', cbar=True, bins=300, binwidth=0.01, 
         alpha=1.0, kde=True
     )
+    
+    
     #ax_point.set_position(ax.figbox)    
     #plt.gca().set_aspect('equal');
     im = ax_point.plot(rnge[0],rnge[1],color='black', label=label, linestyle='--', linewidth=1.5)
@@ -821,24 +823,26 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
     ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
     #ax_point.set_xlabel('True Redshift' , fontsize=14)
     #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
-    ax_point.set_xlabel('True Redshift' , fontsize=14)
-    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=14)
-    #plt.colorbar(h[3],ax=ax_point)
+    ax_point.set_xlabel('True Redshift' , fontsize=16)
+    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=16)
+    ax_point.tick_params(axis='both', which='major', labelsize=14)
     
     ax_point.set_aspect('equal')
 
-    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
+    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99, fontsize=12)
     
     #plt.suptitle(code, fontsize=16)
     
     plt.xlim(rnge[0][0],rnge[0][1])
     plt.ylim(rnge[1][0],rnge[1][1])
 
+    cbar = h.collections[0].colorbar
+    cbar.ax.tick_params(which='both', labelsize=14)
     
     if savefig:
         plt.savefig(path,bbox_inches='tight')
         
-        
+    plt.show()
         
 def plot_point_metrics_fancy(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.1],[0,3.1]], savefig=False, path='./plot'):
         
@@ -977,9 +981,9 @@ def custom_plot_pit_qq(
         ax0.plot(
             qq[0], qq[1], c="r", linestyle="-", linewidth=3, label=label)
         ax0.plot([0, 1], [0, 1], color="k", linestyle="--", linewidth=2)
-        ax0.set_ylabel("Q$_{data}$", fontsize=18)
+        ax0.set_ylabel("Q$_{data}$", fontsize=20)
         plt.ylim(-0.001, 1.001)
-        ax0.tick_params(axis='y', labelsize=14)   
+        ax0.tick_params(axis='y', labelsize=18)   
 
     plt.xlim(-0.001, 1.001)
     plt.title(title)
@@ -1007,8 +1011,9 @@ def custom_plot_pit_qq(
             ax1.hlines(y_uni, xmin=0, xmax=1, color="k")
             ax1.set_xticklabels([])
     
-        ax1.tick_params(axis='y', labelsize=14)   
-    
+        ax1.tick_params(axis='y', labelsize=18)   
+        ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+
     #leg = ax0.legend(handlelength=0, handletextpad=0, fancybox=True)
     #for item in leg.legendHandles:
     #    item.set_visible(False)
@@ -1028,17 +1033,17 @@ def custom_plot_pit_qq(
             np.min([-0.12, np.min(qq[1] - qq[0]) * 1.05]),
             np.max([0.12, np.max(qq[1] - qq[0]) * 1.05]),
         )
-        ax2.tick_params(axis='x', labelsize=14)   
-        ax2.tick_params(axis='y', labelsize=14)   
+        ax2.tick_params(axis='x', labelsize=18)   
+        ax2.tick_params(axis='y', labelsize=18)   
 
     if show_pit:
         if show_qq:
-            plt.xlabel("Q$_{theory}$ / PIT Value", fontsize=18)
+            plt.xlabel("Q$_{theory}$ / PIT Value", fontsize=20)
         else:
-            plt.xlabel("PIT Value", fontsize=18)
+            plt.xlabel("PIT Value", fontsize=20)
     else:
         if show_qq:
-            plt.xlabel("Q$_{theory}$", fontsize=18)
+            plt.xlabel("Q$_{theory}$", fontsize=20)
     if savefig:
         fig_filename = str("plot_pit_qq_" + f"{(code).replace(' ', '_')}.png")
         plt.savefig(fig_filename)
