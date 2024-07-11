@@ -17,7 +17,7 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
-    "ceci2 @ git+https://github.com/LSSTDESC/rail_base",
+    "pz_rail_base @ git+https://github.com/LSSTDESC/rail_base@ceci2",
     "deepdisc@git+https://github.com/lincc-frameworks/deepdisc.git",
     "detectron2@git+https://github.com/facebookresearch/detectron2.git",
     "scarlet@git+https://github.com/pmelchior/scarlet.git",
