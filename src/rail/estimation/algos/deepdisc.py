@@ -185,7 +185,7 @@ class DeepDiscInformer(CatInformer):
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
     def __init__(self, args, **kwargs):
-        super().__init__(self, args, **kwargs)
+        super().__init__(args, **kwargs)
 
         # check to make sure that batch_size is an even multiple of num_gpus
         if self.config.batch_size % self.config.num_gpus != 0:
@@ -318,7 +318,7 @@ class DeepDiscPDFEstimator(CatEstimator):
         """Constructor:
         Do Estimator specific initialization"""
         self.nnmodel = None
-        super().__init__(self, args, **kwargs)
+        super().__init__(args, **kwargs)
 
     def estimate(self, input_data, input_metadata):
         with tempfile.TemporaryDirectory() as temp_directory_name:
@@ -516,7 +516,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
     def __init__(self, args, **kwargs):
         """Constructor:
         Do Estimator specific initialization"""
-        super().__init__(self, args, **kwargs)
+        super().__init__(args, **kwargs)
 
         self.nnmodel = None
         self.zgrid = np.linspace(0, 5, 200)
