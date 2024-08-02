@@ -9,7 +9,6 @@ dependencies:
   - ipykernel
   - imgaug
   - numpy
-  - opencv-python
   - pybind11
   - pytorch
   - torchvision
@@ -17,3 +16,4 @@ dependencies:
     - autograd
     - peigen
     - proxmin
+    - opencv-python
