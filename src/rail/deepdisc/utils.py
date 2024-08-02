@@ -844,69 +844,99 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
         
     plt.show()
         
-def plot_point_metrics_fancy(res,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.1],[0,3.1]], savefig=False, path='./plot'):
+def plot_point_metrics_mult(res_list,ztrue_list, point_est='mode', codes=None, zgrid = np.linspace(0, 3, 300),
+                            rnge=[[0,3.2],[0,3.2]], vmin=None, vmax=None, savefig=False, path='./plot'):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
     
-    gs = gridspec.GridSpec(ncols=1, nrows=1, height_ratios=[1], width_ratios=[1],
-                          hspace=0.05,wspace=0.4)
+    numcodes = len(res_list)
+    if codes is None:
+        codes=['']*numcodes
     
-    fig = plt.figure(figsize=[7, 7], constrained_layout=True)
+    gs = gridspec.GridSpec(ncols=numcodes, nrows=1, height_ratios=[1], width_ratios=[0.91]*(numcodes-1)+[1])#, hspace=0.05,wspace=0.4)
     
-    
-    ax_point = plt.subplot(gs[0])
-    
-    
-    if point_est == 'mode':
-        points = res.mode(zgrid)
-    elif point_est == 'mean':
-        points = res.mean()
+    fig = plt.figure(figsize=[7*numcodes, 7], tight_layout=True)
 
+
+    for i, (res,ztrue) in enumerate(zip(res_list,ztrue_list)):
+        if i>0:
+            ax_point = plt.subplot(gs[i],sharey=ax_point)
+        else:
+            ax_point = plt.subplot(gs[i])
+
+
+        if point_est == 'mode':
+            points = res.mode(zgrid)
+        elif point_est == 'mean':
+            points = res.mean()
+
+
+        met = point_metrics(ztrue, points[:,0])
+
+        threesig = 3.0*met[3]
+        cutcriterion = np.maximum(0.06,threesig)
+        mask= (np.fabs(met[0])>cutcriterion)
+
+        ztmax = rnge[0][1]
+        zpmax1 = cutcriterion * (1+ztmax) + ztmax
+        zpmax2 = -cutcriterion * (1+ztmax) + ztmax
+
+        df = pd.DataFrame(np.array([ztrue,points[:,0]]).T, columns=['ztrue','zmode'])
+
+        label = f"Bias: {met[1]:.4f}"    
+        label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
+        label += f"\n $\eta$: {met[4]:.4f}"    
+
+        if i==numcodes-1:
+            cbardict = {'label': ' ', 'fraction':0.046, 'pad':0.04, 'use_gridspec':True}
+            #cbardict = {'label': ' ', 'fraction':0.1, 'pad':0.04}
+
+            #cax = fig.add_axes([ax_point.get_position().x1+0.01,ax_point.get_position().y0,0.02,ax_point.get_position().height])    
+            h= sns.histplot(
+                data=df, x="ztrue", y="zmode", fill=True,  norm=colors.LogNorm(vmin=vmin,vmax=vmax), 
+                vmin=None, vmax=None, cmap='plasma', cbar=True, cbar_kws=cbardict, bins=300, binwidth=0.01, 
+                alpha=1.0, kde=True
+            )
+        else:
+            h= sns.histplot(
+                data=df, x="ztrue", y="zmode", fill=True,  norm=colors.LogNorm(vmin=vmin,vmax=vmax), 
+                vmin=None, vmax=None, cmap='plasma', cbar=False, bins=300, binwidth=0.01, 
+                alpha=1.0, kde=True
+            )                    
+
+
+        #ax_point.set_position(ax.figbox)    
+        #plt.gca().set_aspect('equal');
+        im = ax_point.plot(rnge[0],rnge[1],color='black', label=label, linestyle='--', linewidth=1.5)
+        ax_point.plot(rnge[0],[cutcriterion,zpmax1],color='black', linestyle='-', linewidth=1.5)
+        ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
+        #ax_point.set_xlabel('True Redshift' , fontsize=14)
+        if i==0:
+            ax_point.set_ylabel('Predicted Redshift', fontsize=20)
+        ax_point.set_xlabel('True Redshift' , fontsize=20)
+        ax_point.tick_params(axis='both', which='major', labelsize=20)
+        ax_point.set_title(codes[i],fontsize=24)
+        ax_point.set_aspect('equal')
+
+        leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99, fontsize=16)
+    
+        ax_point.set_xlim(rnge[0][0],rnge[0][1])
+        ax_point.set_ylim(rnge[1][0],rnge[1][1])
         
-    met = point_metrics(ztrue, points[:,0])
-    
-    threesig = 3.0*met[3]
-    cutcriterion = np.maximum(0.06,threesig)
-    mask= (np.fabs(met[0])>cutcriterion)
-    
-    ztmax = rnge[0][1]
-    zpmax1 = cutcriterion * (1+ztmax) + ztmax
-    zpmax2 = -cutcriterion * (1+ztmax) + ztmax
-    
-    df = pd.DataFrame(np.array([ztrue,points]).T, columns=['ztrue','zmode'])
+        if i>0:
+            plt.setp(ax_point.get_yticklabels(), visible=False)
+            h.set(yticklabels=[])
+            h.set(ylabel=None)
 
-    
-    label = f"Bias: {met[1]:.4f}"    
-    label += f"\n$\sigma_{{IQR}}$: {met[3]:.4f}"    
-    label += f"\nOutlier Frac: {met[4]:.4f}"    
 
-    
-    ax_point.scatter(ztrue,zmode,color=sns.color_palette("flare_r").as_hex()[0],s=0.01,marker='.',alpha=0.5)
-    
-    h= sns.kdeplot(data=df[~mask], x="ztrue", y="zmode", fill=True, cmap='flare_r', cbar=True, gridsize=300, thresh=0.02, levels=20)
-    
-    
-    im = ax_point.plot(rnge[0],rnge[1],color='black', label=label)
-    ax_point.plot([0,3.1],[cutcriterion,zpmax1],color='black', linestyle='--')
-    ax_point.plot([0,3.1],[-cutcriterion,zpmax2],color='black', linestyle='--')
-    
-    ax_point.set_xlabel('True Redshift' , fontsize=14)
-    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=14)
-    
-    #plt.colorbar(h[3],ax=ax_point)
-    
-    ax_point.set_xlim(0,3.1)
-    ax_point.set_ylim(0,3.1)
-    
-    leg = ax_point.legend(handlelength=0, handletextpad=0, fancybox=True, framealpha=0.99)
-    
-    plt.suptitle(code, fontsize=16)
-
+    cbar = h.collections[0].colorbar
+    cbar.ax.tick_params(which='both', labelsize=20)
     
     if savefig:
-        plt.savefig(path)
-    
+        plt.savefig(path,bbox_inches='tight')
+        
+    plt.show()
     
     
 def custom_plot_pit_qq(
@@ -1013,6 +1043,8 @@ def custom_plot_pit_qq(
     
         ax1.tick_params(axis='y', labelsize=18)   
         ax1.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        tx = ax1.yaxis.get_offset_text()
+        tx.set_fontsize(15)
 
     #leg = ax0.legend(handlelength=0, handletextpad=0, fancybox=True)
     #for item in leg.legendHandles:
