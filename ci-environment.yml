@@ -16,4 +16,4 @@ dependencies:
     - autograd
     - peigen
     - proxmin
-    - opencv-python
+    - opencv-python-headless
