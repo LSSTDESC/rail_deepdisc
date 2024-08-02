@@ -9,7 +9,7 @@ dependencies:
   - ipykernel
   - imgaug
   - numpy
-  - opencv
+  - opencv-python
   - pybind11
   - pytorch
   - torchvision
