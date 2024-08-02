@@ -39,6 +39,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install .
         pip install .[dev]
+	apt-get install libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1-mesa-glx
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Run unit tests with pytest
       run: |
