@@ -188,8 +188,8 @@ class DeepDiscInformer(CatInformer):
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
-    def __init__(self, args, comm=None):
-        CatInformer.__init__(self, args, comm=comm)
+    def __init__(self, args, **kwargs):
+        super().__init__(args, **kwargs)
 
         # check to make sure that batch_size is an even multiple of num_gpus
         if self.config.batch_size % self.config.num_gpus != 0:
@@ -295,6 +295,7 @@ def _get_dist_url():
     return dist_url
 
 def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
+
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
 
@@ -410,10 +411,10 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
               ("metadata", Hdf5Handle)]
     outputs = [("output", QPHandle)]
 
-    def __init__(self, args, comm=None):
+    def __init__(self, args, **kwargs):
         """Constructor:
         Do Estimator specific initialization"""
-        CatEstimator.__init__(self, args, comm=comm)
+        super().__init__(args, **kwargs)
 
         self.nnmodel = None
         self.zgrid = np.linspace(self.config.zmin, self.config.zmax, self.config.nzbins)
