@@ -303,7 +303,7 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
         
         
         mapper = cfg.dataloader.test.mapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"]
+            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"],
         ).map_data
 
         loader = d2data.build_detection_test_loader(

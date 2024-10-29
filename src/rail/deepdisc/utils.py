@@ -742,7 +742,7 @@ def plot_metrics(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
         
         
         
-def plot_PIT(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+def plot_PIT(ens,ztrue, point_est='mode', code='', title='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -759,7 +759,7 @@ def plot_PIT(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5, 200
         zgrid,
         ztrue,
         gs,
-        title="",
+        title=title,
         code=code,
         pit_out_rate=None,
         #savefig=True,
@@ -913,8 +913,8 @@ def plot_point_metrics_mult(res_list,ztrue_list, point_est='mode', codes=None, z
         ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
         #ax_point.set_xlabel('True Redshift' , fontsize=14)
         if i==0:
-            ax_point.set_ylabel('Predicted Redshift', fontsize=20)
-        ax_point.set_xlabel('True Redshift' , fontsize=20)
+            ax_point.set_ylabel(r'$z_{\rm phot}$', fontsize=20)
+        ax_point.set_xlabel(r'$z_{\rm true}$' , fontsize=20)
         ax_point.tick_params(axis='both', which='major', labelsize=20)
         ax_point.set_title(codes[i],fontsize=24)
         ax_point.set_aspect('equal')
@@ -924,9 +924,12 @@ def plot_point_metrics_mult(res_list,ztrue_list, point_est='mode', codes=None, z
         ax_point.set_xlim(rnge[0][0],rnge[0][1])
         ax_point.set_ylim(rnge[1][0],rnge[1][1])
         
+        ax_point.set_xticks(np.arange(0,3.5,0.5))
+        ax_point.tick_params(axis='x', labelrotation=45)
+        
         if i>0:
             plt.setp(ax_point.get_yticklabels(), visible=False)
-            h.set(yticklabels=[])
+            #h.set(yticklabels=[])
             h.set(ylabel=None)
 
 
@@ -1011,12 +1014,12 @@ def custom_plot_pit_qq(
         ax0.plot(
             qq[0], qq[1], c="r", linestyle="-", linewidth=3, label=label)
         ax0.plot([0, 1], [0, 1], color="k", linestyle="--", linewidth=2)
-        ax0.set_ylabel("Q$_{data}$", fontsize=20)
+        ax0.set_ylabel(r"Q$_{\rm data}$", fontsize=20)
         plt.ylim(-0.001, 1.001)
         ax0.tick_params(axis='y', labelsize=18)   
 
     plt.xlim(-0.001, 1.001)
-    plt.title(title)
+    plt.title(title,fontsize=18)
     if show_pit:
         #fzdata = Ensemble(interp, data=dict(xvals=zgrid, yvals=pdfs))
         #pitobj = PIT(fzdata, ztrue)
@@ -1070,12 +1073,12 @@ def custom_plot_pit_qq(
 
     if show_pit:
         if show_qq:
-            plt.xlabel("Q$_{theory}$ / PIT Value", fontsize=20)
+            plt.xlabel(r"Q$_{\rm theory}$ / PIT Value", fontsize=20)
         else:
             plt.xlabel("PIT Value", fontsize=20)
     else:
         if show_qq:
-            plt.xlabel("Q$_{theory}$", fontsize=20)
+            plt.xlabel(r"Q$_{\rm theory}$", fontsize=20)
     if savefig:
         fig_filename = str("plot_pit_qq_" + f"{(code).replace(' ', '_')}.png")
         plt.savefig(fig_filename)
