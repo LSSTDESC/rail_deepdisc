@@ -64,23 +64,35 @@ def train(config, all_metadata, train_head=True):
 
     
     val_per = epoch
-
-    # Create slices for the input data
-    total_images = len(all_metadata)
-    split_index = int(np.floor(total_images * training_percent))
-    train_slice = slice(split_index)
-    eval_slice = slice(split_index, total_images)
-
     
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
+
+    if 'indsplit_file' in cfg['dataloader'].keys() and 'indsplit_fold' in cfg['dataloader'].keys():
+        print('Using provided train/validation split')
+        with open(cfg['dataloader']['indsplit_file'], 'r') as json_file:
+            indsplits = json.load(json_file)    
+            fold = cfg['dataloader']['indsplit_fold']
+            train_inds = indsplits[fold]['train_inds']
+            eval_inds = indsplits[fold]['validation_inds']
+
+    
+    else:
+        # Create slices for the input data
+        total_images = len(all_metadata)
+        split_index = int(np.floor(total_images * training_percent))
+        train_slice = slice(split_index)
+        eval_slice = slice(split_index, total_images)
+        train_inds = list(range(*train_slice.indices(total_images)))    
+        eval_inds = list(range(*eval_slice.indices(total_images)))
+
     
     mapper = cfg.dataloader.train.mapper(
         cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
-        all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
+        [all_metadata[i] for i in train_inds], mapper=mapper, total_batch_size=batch_size
     )
     
 
@@ -103,7 +115,7 @@ def train(config, all_metadata, train_head=True):
             hookList = [schedulerHook, saveHook]
             print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
         else:
-            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            eval_loader = d2data.build_detection_test_loader([all_metadata[i] for i in eval_inds], mapper=mapper, batch_size=batch_size)
             lossHook = return_evallosshook(val_per, model, eval_loader)
             hookList = [lossHook, schedulerHook, saveHook]
 
@@ -117,9 +129,13 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
+            #np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'w') as json_file:
+                    json.dump(trainer.lossdict_epochs, json_file)
             if training_percent<1.0:
-                np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+                #np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+                 with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'w') as json_file:
+                    json.dump(trainer.vallossdict_epochs, json_file)
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -137,7 +153,7 @@ def train(config, all_metadata, train_head=True):
             hookList = [schedulerHook, saveHook]
             print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
         else:
-            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            eval_loader = d2data.build_detection_test_loader([all_metadata[i] for i in eval_inds], mapper=mapper, batch_size=batch_size)
             lossHook = return_evallosshook(val_per, model, eval_loader)
             hookList = [lossHook, schedulerHook, saveHook]
 
@@ -149,13 +165,25 @@ def train(config, all_metadata, train_head=True):
         trainer.train(e1, efinal)
 
         if comm.is_main_process():
-            losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
-            losses = np.concatenate((losses, trainer.lossList))
-            np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
+            #losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
+            #losses = np.concatenate((losses, trainer.lossList))
+            #np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
+            
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'r') as json_file:
+                lossdict = json.load(json_file)
+            lossdict.update(trainer.lossdict_epochs)
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'w') as json_file:
+                json.dump(lossdict, json_file)
+        
             if training_percent<1.0:
-                vallosses = np.load(output_dir + run_name + "_val_losses.npy")
-                vallosses = np.concatenate((vallosses, trainer.vallossList))
-                np.save(output_dir + run_name + "_val_losses", vallosses)
+                #vallosses = np.load(output_dir + run_name + "_val_losses.npy")
+                #vallosses = np.concatenate((vallosses, trainer.vallossList))
+                #np.save(output_dir + run_name + "_val_losses", vallosses)
+                with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'r') as json_file:
+                    valdict = json.load(json_file)
+                valdict.update(trainer.vallossdict_epochs)
+                with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'w') as json_file:
+                    json.dump(valdict, json_file)
 
 
 class DeepDiscInformer(CatInformer):
