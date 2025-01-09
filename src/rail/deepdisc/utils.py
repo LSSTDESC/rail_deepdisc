@@ -588,13 +588,15 @@ def custom_plot_pit_qq(
     return gs, fig_filename
 
 
-def point_metrics(z, pred):
+def point_metrics(z, pred, DESC_OF=True):
     """
         Returns the desired performance metrics.
         
         Arguments:
             z (numpy array): true redschift
             pred (numpy array): the redshift prediction
+            DESC_OF (bool): Whether to use DESC DC1 outlier fraction definition
+                            or traditional |ez|<0.15
              
         Returns:
             dz (ndarray): Residuals for every test image.
@@ -615,14 +617,18 @@ def point_metrics(z, pred):
     iqr = x75-x25
     sigma_iqr = iqr/1.349        
     
-    #out_frac_1 = np.sum(np.abs(dz) > 0.05) / float(len(z))
     
     
-    threesig = 3.0*sigma_iqr
-    cutcriterion = np.maximum(0.06,threesig)
-    mask= (np.fabs(ez)>cutcriterion)
-    outlier = np.sum(mask)
-    out_frac = float(outlier)/float(len(z))
+    if DESC_OF:
+        threesig = 3.0*sigma_iqr
+        cutcriterion = np.maximum(0.06,threesig)
+        mask= (np.fabs(ez)>cutcriterion)
+        outlier = np.sum(mask)
+        out_frac = float(outlier)/float(len(z))
+        
+    else:
+        out_frac = np.sum(np.abs(ez) > 0.15) / float(len(z))
+
     
     return ez, pred_bias, smad, sigma_iqr, out_frac
 
