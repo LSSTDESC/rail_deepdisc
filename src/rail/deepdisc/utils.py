@@ -651,7 +651,8 @@ def bias_per_quantity(res, df, key, bins, zgrid=np.linspace(0,3,300), log=False,
 
     mets = []
     ezs=[]
-    resbins=[]
+    #resbins=[]
+    used_bins = []
     for i, bbin in enumerate(bins):
         resbin = np.where(binsi-1==i)[0]
         if len(resbin)==0:
@@ -663,12 +664,12 @@ def bias_per_quantity(res, df, key, bins, zgrid=np.linspace(0,3,300), log=False,
         ezs.append(ez)
         
         mets.append([pred_bias,smad,sigma_iqr,out_frac])
-        resbins.append(resbin)
-    
+        #resbins.append(resbin)
+        used_bins.append(i)
     biases = [np.median(ez) for ez in ezs]
 
     if return_bins:
-        return ezs, biases, np.array(mets), quant, resbins
+        return ezs, biases, np.array(mets), quant, used_bins #resbins
     else:
         return ezs, biases, np.array(mets), quant
     
@@ -728,7 +729,7 @@ def bootstrap_binned_bias(ezs):
     return bias_std_bs, siqrs_std_bs, ofs_std_bs
 
 
-def all_metrics(resfull, df, quantf, bins, log=False):
+def all_metrics(resfull, df, quantf, bins, log=False,return_bins=False):
     all_bias_stds = []
     all_siqrs_stds = []
     all_ofs_stds = []
@@ -745,7 +746,7 @@ def all_metrics(resfull, df, quantf, bins, log=False):
         #indsi = np.random.choice(inds,100000)
         #res = resfull[indsi]
         res = resfull
-        ezs, biases, mets, quant = bias_per_quantity(res,df,quantf, bins, log=log)
+        ezs, biases, mets, quant, gbins = bias_per_quantity(res,df,quantf, bins, log=log,return_bins=return_bins)
         
         bias_std_bs, siqrs_std_bs, ofs_std_bs = bootstrap_binned_bias(ezs)
         
@@ -760,4 +761,7 @@ def all_metrics(resfull, df, quantf, bins, log=False):
         
         all_quants.append(quant)
         
-    return all_biases, all_bias_stds, all_siqrs, all_siqrs_stds, all_ofs, all_ofs_stds, all_quants
+    if return_bins:
+        return all_biases, all_bias_stds, all_siqrs, all_siqrs_stds, all_ofs, all_ofs_stds, all_quants, gbins
+    else:
+        return all_biases, all_bias_stds, all_siqrs, all_siqrs_stds, all_ofs, all_ofs_stds, all_quants
