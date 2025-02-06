@@ -671,7 +671,7 @@ def bias_per_quantity(res, df, key, bins, zgrid=np.linspace(0,3,300), log=False,
     if return_bins:
         return ezs, biases, np.array(mets), quant, used_bins #resbins
     else:
-        return ezs, biases, np.array(mets), quant
+        return ezs, biases, np.array(mets), quant, -1
     
 
 def bootstrap_binned_bias(ezs):

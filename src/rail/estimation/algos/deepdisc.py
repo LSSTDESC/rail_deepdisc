@@ -319,10 +319,13 @@ def _get_dist_url():
         + 2**14
         + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
     )
+
+    #port = 25678
     dist_url = "tcp://127.0.0.1:{}".format(port)
     return dist_url
 
-def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
+#def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
+def _do_inference(q, cfg, nnmodel, metadata, num_gpus, batch_size, zgrid, dist_url):
 
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
@@ -338,6 +341,8 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
         loader = d2data.build_detection_test_loader(
             metadata, mapper=mapper, batch_size=batch_size
         )
+
+        predictor = return_predictor_transformer(cfg, checkpoint=nnmodel)
 
         # this batched version will break up the metadata across GPUs under the hood.
         #true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=True, blendedness=True)
@@ -478,7 +483,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         cfg.OUTPUT_DIR = self.config.output_dir
         
         
-        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+        #self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
         
@@ -540,13 +545,14 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             launch(
                 _do_inference,
                 num_gpus_per_machine=self.config.num_gpus,
-                # num_machines=1 ??? I don't think we need this
+                #num_machines=1, #??? I don't think we need this
                 # machine_rank=self.rank ??? I don't think we need this, I could be wrong
                 dist_url=_get_dist_url(),
                 args=(
                     q,
                     cfg,
-                    self.predictor,
+                    #self.predictor,
+                    self.nnmodel,
                     metadata,
                     self.config.num_gpus,
                     self.config.batch_size,
