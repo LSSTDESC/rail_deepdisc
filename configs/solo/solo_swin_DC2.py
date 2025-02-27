@@ -20,7 +20,7 @@ numclasses = len(metadata.classes)
 # Get values from templates
 from ..COCO.cascade_mask_rcnn_swin_b_in21k_50ep import dataloader, model, train, lr_multiplier, optimizer
 from deepdisc.model.models import RedshiftPDFCasROIHeads
-from deepdisc.model.loaders import RedshiftDictMapper, RedshiftDictMapperEval, GoldRedshiftDictMapperEval, WCSDictmapper
+from deepdisc.model.loaders import RedshiftDictMapper, WCSDictmapper
 
 
 # Overrides

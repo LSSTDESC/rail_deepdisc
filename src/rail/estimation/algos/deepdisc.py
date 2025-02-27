@@ -19,7 +19,7 @@ from deepdisc.inference.match_objects import (run_batched_match_redshift,
                                               get_matched_z_pdfs,
                                               get_matched_z_pdfs_new,
                                               get_matched_z_points_new)
-from deepdisc.inference.predictors import return_predictor_transformer
+from deepdisc.inference.predictors import return_predictor
 from deepdisc.model.loaders import return_test_loader, return_train_loader
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
