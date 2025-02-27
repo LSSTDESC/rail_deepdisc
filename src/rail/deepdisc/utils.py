@@ -323,8 +323,8 @@ def plot_point_metrics(res,ztrue, point_est='mode', code='', zgrid = np.linspace
     ax_point.plot(rnge[0],[-cutcriterion,zpmax2],color='black', linestyle='-', linewidth=1.5)
     #ax_point.set_xlabel('True Redshift' , fontsize=14)
     #ax_point.set_ylabel('Predicted Redshift', fontsize=14)
-    ax_point.set_xlabel('True Redshift' , fontsize=16)
-    ax_point.set_ylabel(f'Predicted Redshift ({point_est})', fontsize=16)
+    ax_point.set_xlabel(r'$z_{\rm true}$' , fontsize=16)
+    ax_point.set_ylabel(r'$z_{\rm phot}$', fontsize=16)
     ax_point.tick_params(axis='both', which='major', labelsize=14)
     
     ax_point.set_aspect('equal')
