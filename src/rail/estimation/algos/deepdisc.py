@@ -54,6 +54,7 @@ def train(config, all_metadata, train_head=True):
     mile1 = config["mile1"]
     mile2 = config["mile2"]
     training_percent = config["training_percent"]
+    save_frequency = config['save_frequency']
 
     e1 = epoch * head_epochs
     e2 = epoch * mile1
@@ -64,6 +65,8 @@ def train(config, all_metadata, train_head=True):
 
     
     val_per = epoch
+    if save_frequency == -1:
+        save_frequency=epoch
     
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
@@ -99,7 +102,7 @@ def train(config, all_metadata, train_head=True):
     
     model = return_lazy_model(cfg, freeze=False)
 
-    saveHook = return_savehook(run_name, epoch)
+    saveHook = return_savehook(run_name, save_frequency)
 
 
     if train_head:
@@ -213,6 +216,7 @@ class DeepDiscInformer(CatInformer):
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets."),
+        save_frequency=Param(int, -1, required=False, msg="How often to save the model. Defaults to every epoch."),
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
