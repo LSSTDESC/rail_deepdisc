@@ -12,14 +12,8 @@ import qp
 from ceci.config import StageParameter as Param
 from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import dc2_train_augs
-from deepdisc.data_format.image_readers import DC2ImageReader
-from deepdisc.inference.match_objects import (run_batched_match_redshift,
-                                              run_batched_get_object_coords,
-                                              get_matched_object_classes_new,
-                                              get_matched_z_pdfs,
-                                              get_matched_z_pdfs_new,
-                                              get_matched_z_points_new)
-from deepdisc.inference.predictors import return_predictor_transformer
+import deepdisc.inference.match_objects as match_objects 
+from deepdisc.inference.predictors import AstroPredictor
 from deepdisc.model.loaders import return_test_loader, return_train_loader
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -55,6 +49,7 @@ def train(config, all_metadata, train_head=True):
     mile2 = config["mile2"]
     training_percent = config["training_percent"]
     save_frequency = config['save_frequency']
+    freeze_option = config['freeze_option']
 
     e1 = epoch * head_epochs
     e2 = epoch * mile1
@@ -98,14 +93,16 @@ def train(config, all_metadata, train_head=True):
         [all_metadata[i] for i in train_inds], mapper=mapper, total_batch_size=batch_size
     )
     
+    if freeze_option==2:
+        model = return_lazy_model(cfg, freeze=train_head)
 
-    
-    model = return_lazy_model(cfg, freeze=False)
-
+    else:
+        model = return_lazy_model(cfg, freeze=freeze_option)
+        
     saveHook = return_savehook(run_name, save_frequency)
-
-
+    
     if train_head:
+
         
         cfg.optimizer.params.model = model
         cfg.SOLVER.MAX_ITER = e1  # for DefaultTrainer
@@ -217,6 +214,7 @@ class DeepDiscInformer(CatInformer):
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets."),
         save_frequency=Param(int, -1, required=False, msg="How often to save the model. Defaults to every epoch."),
+        freeze_option=Param(int, 0, required=False, msg="Options for freezing the model.  0: Don't freeze any layers, 1: Freeze backbone layers except the stem, 2: Freeze backbone layers except the stem for head_epochs, then unfreeze all layers for full_epochs")
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
@@ -339,18 +337,18 @@ def _do_inference(q, cfg, nnmodel, metadata, num_gpus, batch_size, zgrid, dist_u
         
         
         mapper = cfg.dataloader.test.mapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"],
+            cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"],
         ).map_data
 
         loader = d2data.build_detection_test_loader(
             metadata, mapper=mapper, batch_size=batch_size
         )
 
-        predictor = return_predictor_transformer(cfg, checkpoint=nnmodel)
+        predictor = AstroPredictor(cfg, checkpoint=nnmodel)
 
         # this batched version will break up the metadata across GPUs under the hood.
         #true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=True, blendedness=True)
-        pdfs, ras, decs, classes, gmms, scores = run_batched_get_object_coords(loader, predictor, gmm=True)
+        pdfs, ras, decs, classes, gmms, scores = match_objects.run_batched_get_object_coords(loader, predictor, gmm=True)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
@@ -485,9 +483,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
-        
-        
-        #self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+                
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
         

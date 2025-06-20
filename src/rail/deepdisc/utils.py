@@ -242,7 +242,7 @@ def plot_metrics(ens,ztrue, point_est='mode', code='', zgrid = np.linspace(0, 5,
         
         
         
-def plot_PIT(ens,ztrue, point_est='mode', code='', title='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot'):
+def plot_PIT(ens,ztrue, point_est='mode', code='', title='', zgrid = np.linspace(0, 5, 200), rnge=[[0,3.2],[0,3.2]], savefig=False, path='./plot', bins=None):
         
     #pitobj = PIT(res, truth)
     #pit_out_rate = pitobj.evaluate_PIT_outlier_rate()
@@ -263,6 +263,7 @@ def plot_PIT(ens,ztrue, point_est='mode', code='', title='', zgrid = np.linspace
         code=code,
         pit_out_rate=None,
         #savefig=True,
+        bins=bins
     )
     
     gals = np.where(ztrue!=0)
