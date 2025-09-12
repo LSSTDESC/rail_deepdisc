@@ -628,7 +628,7 @@ def point_metrics(z, pred, DESC_OF=True):
         out_frac = float(outlier)/float(len(z))
         
     else:
-        out_frac = np.sum(np.abs(ez) > 0.15) / float(len(z))
+        out_frac = np.sum(np.abs(ez) > 0.15) / float(len(z[~nans]))
 
     
     return ez, pred_bias, smad, sigma_iqr, out_frac
