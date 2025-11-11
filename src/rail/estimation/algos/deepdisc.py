@@ -12,14 +12,8 @@ import qp
 from ceci.config import StageParameter as Param
 from ceci.stage import PipelineStage
 from deepdisc.data_format.augment_image import dc2_train_augs
-from deepdisc.data_format.image_readers import DC2ImageReader
-from deepdisc.inference.match_objects import (run_batched_match_redshift,
-                                              run_batched_get_object_coords,
-                                              get_matched_object_classes_new,
-                                              get_matched_z_pdfs,
-                                              get_matched_z_pdfs_new,
-                                              get_matched_z_points_new)
-from deepdisc.inference.predictors import return_predictor_transformer
+import deepdisc.inference.match_objects as match_objects 
+from deepdisc.inference.predictors import AstroPredictor
 from deepdisc.model.loaders import return_test_loader, return_train_loader
 from deepdisc.model.models import return_lazy_model
 from deepdisc.training.trainers import (return_evallosshook,
@@ -54,6 +48,8 @@ def train(config, all_metadata, train_head=True):
     mile1 = config["mile1"]
     mile2 = config["mile2"]
     training_percent = config["training_percent"]
+    save_frequency = config['save_frequency']
+    freeze_option = config['freeze_option']
 
     e1 = epoch * head_epochs
     e2 = epoch * mile1
@@ -64,33 +60,49 @@ def train(config, all_metadata, train_head=True):
 
     
     val_per = epoch
-
-    # Create slices for the input data
-    total_images = len(all_metadata)
-    split_index = int(np.floor(total_images * training_percent))
-    train_slice = slice(split_index)
-    eval_slice = slice(split_index, total_images)
-
+    if save_frequency == -1:
+        save_frequency=epoch
     
     cfg = LazyConfig.load(cfgfile)
     cfg.OUTPUT_DIR = output_dir
+
+    if 'indsplit_file' in cfg['dataloader'].keys() and 'indsplit_fold' in cfg['dataloader'].keys():
+        print('Using provided train/validation split')
+        with open(cfg['dataloader']['indsplit_file'], 'r') as json_file:
+            indsplits = json.load(json_file)    
+            fold = cfg['dataloader']['indsplit_fold']
+            train_inds = indsplits[fold]['train_inds']
+            eval_inds = indsplits[fold]['validation_inds']
+
+    
+    else:
+        # Create slices for the input data
+        total_images = len(all_metadata)
+        split_index = int(np.floor(total_images * training_percent))
+        train_slice = slice(split_index)
+        eval_slice = slice(split_index, total_images)
+        train_inds = list(range(*train_slice.indices(total_images)))    
+        eval_inds = list(range(*eval_slice.indices(total_images)))
+
     
     mapper = cfg.dataloader.train.mapper(
         cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"], cfg.dataloader.augs
     ).map_data
 
     training_loader = d2data.build_detection_train_loader(
-        all_metadata[train_slice], mapper=mapper, total_batch_size=batch_size
+        [all_metadata[i] for i in train_inds], mapper=mapper, total_batch_size=batch_size
     )
     
+    if freeze_option==2:
+        model = return_lazy_model(cfg, freeze=train_head)
 
+    else:
+        model = return_lazy_model(cfg, freeze=freeze_option)
+        
+    saveHook = return_savehook(run_name, save_frequency)
     
-    model = return_lazy_model(cfg, freeze=False)
-
-    saveHook = return_savehook(run_name, epoch)
-
-
     if train_head:
+
         
         cfg.optimizer.params.model = model
         cfg.SOLVER.MAX_ITER = e1  # for DefaultTrainer
@@ -103,7 +115,7 @@ def train(config, all_metadata, train_head=True):
             hookList = [schedulerHook, saveHook]
             print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
         else:
-            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            eval_loader = d2data.build_detection_test_loader([all_metadata[i] for i in eval_inds], mapper=mapper, batch_size=batch_size)
             lossHook = return_evallosshook(val_per, model, eval_loader)
             hookList = [lossHook, schedulerHook, saveHook]
 
@@ -117,9 +129,13 @@ def train(config, all_metadata, train_head=True):
         trainer.train(0, e1)
 
         if comm.is_main_process():
-            np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
+            #np.save(os.path.join(output_dir,run_name) + "_losses.npy", trainer.lossList)
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'w') as json_file:
+                    json.dump(trainer.lossdict_epochs, json_file)
             if training_percent<1.0:
-                np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+                #np.save(output_dir + run_name + "_val_losses", trainer.vallossList)
+                 with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'w') as json_file:
+                    json.dump(trainer.vallossdict_epochs, json_file)
 
     else:
         cfg.train.init_checkpoint = os.path.join(output_dir, run_name + ".pth")
@@ -137,7 +153,7 @@ def train(config, all_metadata, train_head=True):
             hookList = [schedulerHook, saveHook]
             print(f"The validation loss has been omitted, as the training percent is {training_percent}. To include it, set the training percent to a value between 0 and 1.")
         else:
-            eval_loader = d2data.build_detection_test_loader(all_metadata[eval_slice], mapper=mapper, batch_size=batch_size)
+            eval_loader = d2data.build_detection_test_loader([all_metadata[i] for i in eval_inds], mapper=mapper, batch_size=batch_size)
             lossHook = return_evallosshook(val_per, model, eval_loader)
             hookList = [lossHook, schedulerHook, saveHook]
 
@@ -149,13 +165,25 @@ def train(config, all_metadata, train_head=True):
         trainer.train(e1, efinal)
 
         if comm.is_main_process():
-            losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
-            losses = np.concatenate((losses, trainer.lossList))
-            np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
+            #losses = np.load(os.path.join(output_dir,run_name) + "_losses.npy")
+            #losses = np.concatenate((losses, trainer.lossList))
+            #np.save(os.path.join(output_dir,run_name) + "_losses.npy", losses)
+            
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'r') as json_file:
+                lossdict = json.load(json_file)
+            lossdict.update(trainer.lossdict_epochs)
+            with open(os.path.join(output_dir,run_name) + "_losses.json", 'w') as json_file:
+                json.dump(lossdict, json_file)
+        
             if training_percent<1.0:
-                vallosses = np.load(output_dir + run_name + "_val_losses.npy")
-                vallosses = np.concatenate((vallosses, trainer.vallossList))
-                np.save(output_dir + run_name + "_val_losses", vallosses)
+                #vallosses = np.load(output_dir + run_name + "_val_losses.npy")
+                #vallosses = np.concatenate((vallosses, trainer.vallossList))
+                #np.save(output_dir + run_name + "_val_losses", vallosses)
+                with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'r') as json_file:
+                    valdict = json.load(json_file)
+                valdict.update(trainer.vallossdict_epochs)
+                with open(os.path.join(output_dir,run_name) + "_val_losses.json", 'w') as json_file:
+                    json.dump(valdict, json_file)
 
 
 class DeepDiscInformer(CatInformer):
@@ -185,6 +213,8 @@ class DeepDiscInformer(CatInformer):
         print_frequency=Param(int, 5, required=False, msg="How often to print in-progress output (happens every x number of iterations)."),
         run_name=Param(str, "run", required=False, msg="Name of the training run."),
         training_percent=Param(float, 0.8, required=False, msg="The fraction of input data used to split into training/evaluation sets."),
+        save_frequency=Param(int, -1, required=False, msg="How often to save the model. Defaults to every epoch."),
+        freeze_option=Param(int, 0, required=False, msg="Options for freezing the model.  0: Don't freeze any layers, 1: Freeze backbone layers except the stem, 2: Freeze backbone layers except the stem for head_epochs, then unfreeze all layers for full_epochs")
     )
     inputs = [('input', TableHandle), ('metadata', Hdf5Handle)]
 
@@ -291,10 +321,13 @@ def _get_dist_url():
         + 2**14
         + hash(os.getuid() if sys.platform != "win32" else 1) % 2**14
     )
+
+    #port = 25678
     dist_url = "tcp://127.0.0.1:{}".format(port)
     return dist_url
 
-def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
+#def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist_url):
+def _do_inference(q, cfg, nnmodel, metadata, num_gpus, batch_size, zgrid, dist_url):
 
         """This is the function that is called by `launch` to parallelize
         inference across all available GPUs."""
@@ -304,16 +337,18 @@ def _do_inference(q, cfg, predictor, metadata, num_gpus, batch_size, zgrid, dist
         
         
         mapper = cfg.dataloader.test.mapper(
-            DC2ImageReader(), lambda dataset_dict: dataset_dict["filename"],
+            cfg.dataloader.imagereader, lambda dataset_dict: dataset_dict["filename"],
         ).map_data
 
         loader = d2data.build_detection_test_loader(
             metadata, mapper=mapper, batch_size=batch_size
         )
 
+        predictor = AstroPredictor(cfg, checkpoint=nnmodel)
+
         # this batched version will break up the metadata across GPUs under the hood.
         #true_zs, pdfs, ids, blendedness = run_batched_match_redshift(loader, predictor, ids=True, blendedness=True)
-        pdfs, ras, decs, classes, gmms, scores = run_batched_get_object_coords(loader, predictor, gmm=True)
+        pdfs, ras, decs, classes, gmms, scores = match_objects.run_batched_get_object_coords(loader, predictor, gmm=True)
 
         # convert the python lists into numpy arrays
         pdfs = np.array(pdfs)
@@ -448,9 +483,7 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
         
         cfg = LazyConfig.load(self.config.cfgfile)
         cfg.OUTPUT_DIR = self.config.output_dir
-        
-        
-        self.predictor = return_predictor_transformer(cfg, checkpoint=self.nnmodel)
+                
         flattened_image_iterator = self.input_iterator("input")
         metadata_iterator = self.input_iterator("metadata")
         
@@ -512,13 +545,14 @@ class DeepDiscPDFEstimatorWithChunking(CatEstimator):
             launch(
                 _do_inference,
                 num_gpus_per_machine=self.config.num_gpus,
-                # num_machines=1 ??? I don't think we need this
+                #num_machines=1, #??? I don't think we need this
                 # machine_rank=self.rank ??? I don't think we need this, I could be wrong
                 dist_url=_get_dist_url(),
                 args=(
                     q,
                     cfg,
-                    self.predictor,
+                    #self.predictor,
+                    self.nnmodel,
                     metadata,
                     self.config.num_gpus,
                     self.config.batch_size,
