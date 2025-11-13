@@ -1,6 +1,6 @@
 [project]
 name = "pz-rail-deepdisc"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 readme = "README.md"
 authors = [
@@ -17,10 +17,9 @@ classifiers = [
 dynamic = ["version"]
 
 dependencies = [
-    "pz-rail-base",
+    "pz-rail-base>=1.0.3",
+    "qp-prob[full]>=1.0.0",
     "deepdisc@git+https://github.com/lincc-frameworks/deepdisc.git",
-    "detectron2@git+https://github.com/facebookresearch/detectron2.git",
-    "scarlet@git+https://github.com/pmelchior/scarlet.git",
 ]
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)

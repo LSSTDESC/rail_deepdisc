@@ -18,7 +18,7 @@ jobs:
         shell: bash -l {0}
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11']
+        python-version: ['3.10', '3.11']
 
     steps:
     - uses: actions/checkout@v3
@@ -37,12 +37,13 @@ jobs:
       run: |
         sudo apt-get update
         python -m pip install --upgrade pip
-        pip install .
-        pip install .[dev]
+        pip install setuptools_scm
+        pip install . --no-build-isolation
+        pip install .[dev] --no-build-isolation
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Install OS dependencies
       run: |
-        sudo apt-get install libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1-mesa-glx     
+        sudo apt-get install -y libgl1 libglx-mesa0 libegl-mesa0 libopengl0     
     - name: Run unit tests with pytest
       run: |
         python -m pytest tests --cov=deepdisc --cov-report=xml
