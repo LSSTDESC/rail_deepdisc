@@ -18,12 +18,6 @@ dynamic = ["version"]
 
 dependencies = [
     "pz-rail-base",
-    "timm",
-    "pybind11",
-    "autograd",
-    "peigen",
-    "proxmin",
-    "timm",
     "deepdisc@git+https://github.com/lincc-frameworks/deepdisc.git",
 ]
 

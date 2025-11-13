@@ -10,9 +10,8 @@ dependencies:
   - imgaug
   - numpy
   - pybind11
-  - pytorch
-  - torchvision
   - pip:
+    - timm
     - autograd
     - peigen
     - proxmin
