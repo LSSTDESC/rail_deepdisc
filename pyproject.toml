@@ -18,8 +18,8 @@ dynamic = ["version"]
 
 dependencies = [
     "pz-rail-base>=1.0.3",
+    "qp-prob[full]>=1.0.0",
     "deepdisc@git+https://github.com/lincc-frameworks/deepdisc.git",
-    "qp-prob[full]",
 ]
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
