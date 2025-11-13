@@ -43,7 +43,7 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Install OS dependencies
       run: |
-        sudo apt-get install libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1-mesa-glx     
+        sudo apt-get install -y libgl1 libglx-mesa0 libegl-mesa0 libopengl0     
     - name: Run unit tests with pytest
       run: |
         python -m pytest tests --cov=deepdisc --cov-report=xml
